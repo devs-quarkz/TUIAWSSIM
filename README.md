@@ -77,22 +77,32 @@ Te muestra algo así:
 curl -fsSL http://192.168.1.50:8000/instalar.sh | bash -s -- --servidor http://192.168.1.50:8000
 ```
 
-### 3. (Opcional) que el profesor sirva también las imágenes de Docker
+### 3. Que no necesiten internet **ni para las imágenes**
 
-Si quieres que no necesiten internet **ni para las imágenes**, en el equipo del
-profesor, con Floci ya descargado:
-
-```bash
-docker save floci/floci:latest postgres:16.3-alpine alpine:3.21 \
-  public.ecr.aws/amazonlinux/amazonlinux:2023 \
-  | gzip > ~/TUIAWSSIM/imagenes-floci.tar.gz
-```
-
-Y los alumnos, después de instalar, las cargan con:
+En el equipo del profesor, con las imágenes ya descargadas:
 
 ```bash
-docker load < ~/TUIAWSSIM/imagenes-floci.tar.gz
+cd ~/TUIAWSSIM
+./floci-tui.sh --exportar
 ```
+
+Crea `imagenes-floci.tar.gz` (~250 MB) **en esa misma carpeta**. A partir de ahí:
+
+- `./servir.sh` lo sirve junto al resto,
+- el instalador de los alumnos **lo detecta y se lo baja solo**,
+- y el TUI lo carga automáticamente si le falta alguna imagen.
+
+El alumno no tiene que hacer nada distinto: el mismo comando de siempre.
+
+Si prefieres hacerlo a mano:
+
+```bash
+./floci-tui.sh --exportar /ruta/paquete.tar.gz    # en el equipo del profesor
+./floci-tui.sh --cargar   /ruta/paquete.tar.gz    # en el de los alumnos
+```
+
+En ese caso la imagen de EC2 viaja ya construida (con el arreglo de PAM), así que
+los alumnos **ni descargan 1 GB ni ejecutan el `docker build`**.
 
 ---
 

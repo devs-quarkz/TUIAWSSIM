@@ -18,6 +18,7 @@ set -o pipefail
 # ─────────────────────────────────────────────────────────────
 VERSION_SCRIPT="1.0"
 LOG="$HOME/floci-practica.log"
+DIR_SCRIPT="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
 
 IMG_BASE="public.ecr.aws/amazonlinux/amazonlinux:2023"
 IMG_FLOCI="floci/floci:latest"
@@ -43,6 +44,8 @@ SIN_INTERNET=0
 AUTO=0
 LIMPIAR=0
 SOLO_COMPROBAR=0
+EXPORTAR=""
+CARGAR=""
 
 # ─────────────────────────────────────────────────────────────
 #  Colores y utilidades
@@ -313,9 +316,57 @@ instalar_psql() {
 # ─────────────────────────────────────────────────────────────
 tiene_imagen() { DOCKER image inspect "$1" >/dev/null 2>&1; }
 
+exportar_imagenes() { # exportar_imagenes <fichero>
+  titulo "Exportar las imágenes para clase sin internet"
+  detectar_docker_cmd || { fallo "Docker no está listo"; return 1; }
+  local destino="${1:-$PWD/imagenes-floci.tar.gz}"
+  info "Se guardan las 4 imágenes en un solo fichero (~250-400 MB comprimido)."
+  info "Tarda un par de minutos y ocupa bastante: hazlo con espacio libre."
+  mkdir -p "$(dirname "$destino")" 2>/dev/null
+  printf '  %s$%s docker save … | gzip > %s\n' "$C_DIM" "$C_RESET" "$destino"
+  DOCKER save "$IMG_FLOCI" "$IMG_PG" "$IMG_ALPINE" "$IMG_BASE" | gzip >"$destino"
+  if [ -s "$destino" ]; then
+    ok "Paquete creado: $destino ($(du -h "$destino" | cut -f1))"
+    info "Ponlo junto a instalar.sh en el servidor del profesor."
+    info "El alumno solo tiene que ejecutar el instalador: lo detecta y lo carga."
+    return 0
+  fi
+  fallo "No se pudo crear el paquete"
+  return 1
+}
+
+cargar_imagenes() { # cargar_imagenes <fichero>
+  local f="$1"
+  if [ ! -f "$f" ]; then fallo "No existe el paquete: $f"; return 1; fi
+  titulo "Cargar las imágenes del paquete"
+  detectar_docker_cmd || { fallo "Docker no está listo"; return 1; }
+  info "Cargando $f ($(du -h "$f" | cut -f1))… puede tardar un par de minutos."
+  if gunzip -c "$f" | DOCKER load 2>&1 | tee -a "$LOG" | tail -4; then
+    ok "Imágenes cargadas"
+    return 0
+  fi
+  fallo "No se pudieron cargar las imágenes"
+  return 1
+}
+
 preparar_imagenes() {
   titulo "Imágenes de Docker"
   hay_comando docker || { fallo "Docker no está listo"; return 1; }
+
+  # Si falta alguna imagen y hay un paquete al lado, se carga solo.
+  local falta=0 img cand paquete=""
+  for img in "$IMG_FLOCI" "$IMG_PG" "$IMG_ALPINE" "$IMG_BASE"; do
+    tiene_imagen "$img" || falta=1
+  done
+  if [ "$falta" = 1 ]; then
+    for cand in "$DIR_SCRIPT/imagenes-floci.tar.gz" "$HOME/TUIAWSSIM/imagenes-floci.tar.gz" "$HOME/imagenes-floci.tar.gz"; do
+      [ -f "$cand" ] && { paquete="$cand"; break; }
+    done
+    if [ -n "$paquete" ]; then
+      info "Encontré un paquete de imágenes: $paquete"
+      cargar_imagenes "$paquete"
+    fi
+  fi
 
   local img
   for img in "$IMG_FLOCI" "$IMG_PG" "$IMG_ALPINE" "$IMG_BASE"; do
@@ -831,6 +882,7 @@ menu_principal() {
       8 "Crear la base de datos" \
       9 "Consultar y crear tablas con SQL" \
      10 "Limpieza final" \
+     12 "Exportar imágenes para clase sin internet (profesor)" \
      11 "Ver el log" \
       0 "Salir" ) || break
 
@@ -845,6 +897,7 @@ menu_principal() {
       8) crear_base_datos; pausa ;;
       9) consulta_version && crear_tabla && consola_psql; pausa ;;
      10) confirmar "¿Seguro que quieres limpiar todo?" && limpiar_todo; pausa ;;
+     12) exportar_imagenes; pausa ;;
      11) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
       0) break ;;
       *) ;;
@@ -863,6 +916,8 @@ floci-tui.sh — instalador y guía de la práctica de Floci
   ./floci-tui.sh --auto             Hace toda la práctica sin preguntar
   ./floci-tui.sh --auto --limpiar   …y limpia al terminar
   ./floci-tui.sh --comprobar        Solo diagnostica, sin tocar nada
+  ./floci-tui.sh --exportar [f]     Guarda las 4 imágenes en un fichero (profesor)
+  ./floci-tui.sh --cargar <f>       Carga ese fichero de imágenes (alumno)
   ./floci-tui.sh --ayuda            Esto
 
 Hace, en orden:
@@ -884,6 +939,8 @@ main() {
     case "$1" in
       --auto)      AUTO=1 ;;
       --comprobar) SOLO_COMPROBAR=1 ;;
+      --exportar)  EXPORTAR="${2:-$PWD/imagenes-floci.tar.gz}"; shift ;;
+      --cargar)    CARGAR="$2"; shift ;;
       --limpiar)  LIMPIAR=1 ;;
       --ayuda|-h|--help) mostrar_ayuda; exit 0 ;;
       *) printf 'Opción desconocida: %s (usa --ayuda)\n' "$1"; exit 2 ;;
@@ -894,6 +951,9 @@ main() {
   detectar_os
   : >"$LOG" 2>/dev/null || true
   log "floci-practica.sh $VERSION_SCRIPT — inicio (auto=$AUTO limpiar=$LIMPIAR)"
+
+  if [ -n "$EXPORTAR" ]; then exportar_imagenes "$EXPORTAR"; exit $?; fi
+  if [ -n "$CARGAR" ];   then cargar_imagenes "$CARGAR";   exit $?; fi
 
   if [ "$SOLO_COMPROBAR" = 1 ]; then
     printf '%s\n' "${C_BOLD}TUIAWSSIM — comprobación del equipo${C_RESET}"

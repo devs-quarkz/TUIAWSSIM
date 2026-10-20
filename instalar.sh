@@ -96,6 +96,20 @@ fi
 
 mkdir -p "$DESTINO"
 cp -R "$ORIGEN"/. "$DESTINO"/ 2>/dev/null
+
+# Si el profesor tiene el paquete de imágenes, se baja también: así la
+# práctica funciona sin internet y sin descargar 1 GB de imágenes.
+if [ -n "$SERVIDOR" ]; then
+  if curl -fsI "$SERVIDOR/imagenes-floci.tar.gz" >/dev/null 2>&1; then
+    printf '\n  Descargando también las imágenes de Docker (~250 MB)…\n'
+    if curl -fsSL "$SERVIDOR/imagenes-floci.tar.gz" -o "$DESTINO/imagenes-floci.tar.gz"; then
+      printf '\033[1;32m  ✓ Imágenes descargadas\033[0m\n'
+    else
+      rm -f "$DESTINO/imagenes-floci.tar.gz"
+      printf '\033[1;33m  ! No pude bajar las imágenes; se descargarán de Docker si hay internet\033[0m\n'
+    fi
+  fi
+fi
 chmod +x "$DESTINO"/*.sh 2>/dev/null
 printf '\n\033[1;32m  ✓ Instalado en %s\033[0m\n' "$DESTINO"
 
