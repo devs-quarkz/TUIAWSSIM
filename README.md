@@ -241,7 +241,9 @@ TUIAWSSIM/
 - Linux Mint 22.3 **desde cero** (sin Docker ni AWS CLI): el TUI instaló todo,
   hizo la práctica completa y limpió — sin un solo error
 - Ubuntu 24.04.4 LTS (Docker 29.1.3, psql 16.15)
-- macOS (por probar en la versión publicada)
+- **macOS 27.0.1 arm64 con Docker Desktop 4.96** (motor 29.9.1) y Rosetta 2:
+  el TUI completo con `--auto --limpiar`, sin un solo error — Floci, instancia
+  EC2, **SSH dentro de la instancia** (~36 s) y PostgreSQL 16.3 con datos
 
 Floci: probado con la 2.2.0 y la 2.3.0.
 
