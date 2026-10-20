@@ -280,6 +280,8 @@ instalar_docker_desktop_macos() {
     return 1
   fi
   hdiutil detach "$mnt" -quiet 2>/dev/null; rmdir "$mnt" 2>/dev/null
+  # Sin esto macOS la ejecuta "translocada" desde una ruta temporal
+  xattr -dr com.apple.quarantine /Applications/Docker.app 2>/dev/null || true
   ok "Docker.app copiada a /Applications"
 
   pedir_sudo || return 1
@@ -292,12 +294,15 @@ instalar_docker_desktop_macos() {
 
   info "Abriendo Docker Desktop (acepta la licencia si te la pide)…"
   open -a Docker 2>/dev/null || true
-  info "Esperando al daemon (la primera vez tarda un par de minutos)…"
+  info "Esperando al daemon (la primera vez puede tardar varios minutos)…"
   local j
-  for j in $(seq 1 100); do
+  for j in $(seq 1 200); do
     if docker info >/dev/null 2>&1; then
       ok "Docker responde tras ~$((j*3))s"
       return 0
+    fi
+    if [ $((j % 20)) -eq 0 ]; then
+      info "  …sigo esperando ($((j*3))s). Si macOS te pide algo, acéptalo."
     fi
     sleep 3
   done
