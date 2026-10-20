@@ -82,13 +82,13 @@ info()  { printf '%s\n' "  ${C_DIM}$*${C_RESET}"; }
 pausa() {
   if [ "$AUTO" = 1 ]; then return 0; fi
   printf '\n  %sPulsa ENTER para continuar...%s' "$C_DIM" "$C_RESET"
-  read -r _ || true
+  read -r _ </dev/tty || true
 }
 
 confirmar() { # confirmar "pregunta" → 0 si sí
   if [ "$AUTO" = 1 ]; then return 0; fi
   printf '\n  %s¿%s? [s/N] ' "$C_BOLD" "$1$C_RESET"
-  local r; read -r r || true
+  local r; read -r r </dev/tty || true
   case "$r" in s|S|si|sí|SI|SÍ) return 0 ;; *) return 1 ;; esac
 }
 
@@ -226,9 +226,9 @@ pedir_sudo() {
       pass=$(whiptail --title "TUIAWSSIM — contraseña" \
         --passwordbox "Para instalar paquetes necesito tu contraseña de administrador.\n\nNo se guarda en ningún sitio." \
         11 64 3>&1 1>&2 2>&3) || { info "Cancelado"; return 1; }
-    elif [ -t 0 ]; then
+    elif [ -c /dev/tty ]; then
       printf '\n  Contraseña de sudo (no se verá): '
-      read -rs pass; printf '\n'
+      read -rs pass </dev/tty; printf '\n'
     else
       fallo "No hay terminal para pedir la contraseña"
       info "Usa: SUDO_PASS='tu_contraseña' ./floci-tui.sh"
@@ -327,7 +327,7 @@ instalar_docker_macos() {
   if [ -n "${DOCKER_MAC:-}" ]; then
     eleccion="$DOCKER_MAC"
     info "Usando DOCKER_MAC=$eleccion"
-  elif [ "$AUTO" = 1 ] || [ ! -t 0 ]; then
+  elif [ "$AUTO" = 1 ] || [ ! -t 1 ]; then
     eleccion="desktop"
     info "Modo automático: instalo Docker Desktop (es el que funciona con el SSH)"
   else
@@ -1080,7 +1080,7 @@ tui_menu() { # tui_menu "título" "texto" tag desc tag desc …
       i=$((i+2))
     done
     printf '\n  Opción: '
-    read -r r
+    read -r r </dev/tty
     printf '%s' "$r"
   fi
 }
@@ -1100,7 +1100,7 @@ EOF
 
 menu_principal() {
   local opcion
-  if [ ! -t 0 ]; then
+  if [ ! -t 1 ]; then
     aviso "No hay una terminal interactiva (¿lo estás lanzando desde un script?)."
     info "Usa el modo automático:  ./floci-tui.sh --auto"
     info "O el diagnóstico:        ./floci-tui.sh --comprobar"
