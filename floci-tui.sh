@@ -367,8 +367,31 @@ instalar_docker_macos() {
 
 instalar_docker() {
   titulo "Docker"
-  if hay_comando docker; then
-    ok "Docker ya está instalado: $(docker --version 2>/dev/null | head -1)"
+
+  # ¿Ya funciona? (no basta con que el binario exista)
+  if docker_ok; then
+    ok "Docker ya funciona: $(docker --version 2>/dev/null | head -1)"
+  elif hay_comando docker; then
+    aviso "Docker está instalado pero el demonio no responde. Intento repararlo."
+    if [ "$OS_FAMILIA" = "debian" ]; then
+      pedir_sudo && SUDO systemctl start docker 2>/dev/null
+      sleep 2
+      SUDO systemctl reset-failed docker 2>/dev/null
+      SUDO systemctl start docker 2>/dev/null
+      sleep 3
+    fi
+    if docker_ok; then
+      ok "Docker reparado: $(docker --version 2>/dev/null | head -1)"
+    else
+      aviso "Sigue sin responder: lo reinstalo"
+      if [ "$OS_FAMILIA" = "debian" ]; then
+        pedir_sudo || return 1
+        ejecutar "Docker reinstalado" SUDO env DEBIAN_FRONTEND=noninteractive apt-get install --reinstall -y docker.io || true
+        SUDO systemctl reset-failed docker 2>/dev/null
+        SUDO systemctl start docker 2>/dev/null
+        sleep 3
+      fi
+    fi
   else
     if [ "$SIN_INTERNET" = 1 ]; then
       fallo "No hay internet y Docker no está instalado"
@@ -743,19 +766,30 @@ esperar_ssh() {
   for i in $(seq 1 60); do
     arreglar_pam_instancia
     puerto=$(ssh_puerto_publicado || true)
-    if [ "$OS_FAMILIA" = "macos" ] && [ -n "$puerto" ]; then
-      r=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-               -o ConnectTimeout=4 -o BatchMode=yes -p "$puerto" \
-               -i "$CLAVE" root@localhost 'echo LISTO' 2>&1 | tail -1)
-    else
+
+    # 1) por la IP de la instancia (lo normal en Linux)
+    if [ "$OS_FAMILIA" != "macos" ] && [ -n "$IP_INSTANCIA" ] && \
+       [ "$IP_INSTANCIA" != "None" ] && [ "$IP_INSTANCIA" != "127.0.0.1" ]; then
       r=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                -o ConnectTimeout=4 -o BatchMode=yes \
                -i "$CLAVE" "root@${IP_INSTANCIA}" 'echo LISTO' 2>&1 | tail -1)
+      if [ "$r" = "LISTO" ]; then
+        ok "El SSH responde tras ~$((i*3))s (por IP ${IP_INSTANCIA})"
+        SSH_PUERTO=""
+        return 0
+      fi
     fi
-    if [ "$r" = "LISTO" ]; then
-      ok "El SSH responde tras ~$((i*3))s (puerto ${puerto:-22})"
-      SSH_PUERTO="$puerto"
-      return 0
+
+    # 2) por el puerto publicado (macOS, o si la IP no tiene ruta)
+    if [ -n "$puerto" ]; then
+      r=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+               -o ConnectTimeout=4 -o BatchMode=yes -p "$puerto" \
+               -i "$CLAVE" root@localhost 'echo LISTO' 2>&1 | tail -1)
+      if [ "$r" = "LISTO" ]; then
+        ok "El SSH responde tras ~$((i*3))s (por el puerto ${puerto})"
+        SSH_PUERTO="$puerto"
+        return 0
+      fi
     fi
     sleep 3
   done
@@ -931,13 +965,15 @@ comprobar_equipo() {
     aviso "No hay internet: solo se puede continuar si todo está ya descargado"
   fi
 
-  if hay_comando docker; then
-    ok "Docker: $(docker --version 2>/dev/null | head -1)"
+  if docker_ok; then
+    ok "Docker: $(docker --version 2>/dev/null | head -1) — el demonio responde"
     if docker info 2>/dev/null | grep -qi podman; then
       aviso "Ojo: ese 'docker' es en realidad PODMAN."
       aviso "Floci no funciona con Podman: las instancias se crean sin contenedor y el SSH no funciona."
       info "Instala el Docker de verdad (docker.io o Docker Desktop)."
     fi
+  elif hay_comando docker; then
+    aviso "Docker está instalado pero el demonio NO responde (lo intentaré reparar)"
   else
     aviso "Docker no está instalado (lo hará el paso de instalación)"
   fi
