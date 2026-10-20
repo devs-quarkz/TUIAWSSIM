@@ -1073,13 +1073,15 @@ tui_menu() { # tui_menu "título" "texto" tag desc tag desc …
   if [ "$TIENE_WHIPTAIL" = 1 ]; then
     whiptail --title "Floci — práctica de AWS" --menu "$texto" 24 78 12 "$@" 3>&1 1>&2 2>&3
   else
-    printf '\n%s\n%s\n\n' "$tit" "$texto"
+    # OJO: esta función se llama dentro de $(...), así que el menú tiene que
+    # ir a stderr o no se ve. Solo la opción elegida va a stdout.
+    printf '\n%s\n%s\n\n' "$tit" "$texto" >&2
     local -a a=("$@") i=0
     while [ $i -lt ${#a[@]} ]; do
-      printf '  %-6s %s\n' "${a[$i]}" "${a[$((i+1))]}"
+      printf '  %-6s %s\n' "${a[$i]}" "${a[$((i+1))]}" >&2
       i=$((i+2))
     done
-    printf '\n  Opción: '
+    printf '\n  Opción: ' >&2
     read -r r </dev/tty
     printf '%s' "$r"
   fi
@@ -1114,7 +1116,7 @@ menu_principal() {
 "  Elige qué hacer. Lo más fácil: la opción 1.
 
   Estado actual:
-    Docker:     ${DOCKER_MODO:+docker con sudo}${DOCKER_MODO:-docker}
+    Docker:     $(if docker_ok; then echo "funcionando"; elif hay_comando docker; then echo "instalado pero sin responder"; else echo "sin instalar"; fi)
     Instancia:  ${IP_INSTANCIA:-ninguna}
     Puerto DB:  ${PUERTO_DB}" \
       1 "Empezar la práctica guiada (instala y hace todo)" \
