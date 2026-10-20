@@ -108,6 +108,11 @@ ejecutar() { # ejecutar "descripción" comando...
 # ─────────────────────────────────────────────────────────────
 hay_comando() { command -v "$1" >/dev/null 2>&1; }
 
+# No basta con que el binario exista: tiene que responder
+aws_ok()   { hay_comando aws   && aws --version   >/dev/null 2>&1; }
+psql_ok()  { hay_comando psql  && psql --version  >/dev/null 2>&1; }
+docker_ok(){ hay_comando docker && docker info    >/dev/null 2>&1; }
+
 tiene_internet() {
   curl -sSf -m 8 -o /dev/null https://awscli.amazonaws.com 2>/dev/null && return 0
   curl -sSf -m 8 -o /dev/null https://registry-1.docker.io 2>/dev/null && return 0
@@ -203,18 +208,102 @@ DOCKER() {
 
 pedir_sudo() {
   if sudo -n true 2>/dev/null; then return 0; fi
+
+  # 1) contraseña por variable de entorno (instalaciones desatendidas)
   if [ -n "${SUDO_PASS:-}" ]; then
-    printf '%s\n' "$SUDO_PASS" | sudo -S -v 2>/dev/null && { ok "sudo listo (contraseña de SUDO_PASS)"; return 0; }
+    if printf '%s\n' "$SUDO_PASS" | sudo -S -v 2>/dev/null; then
+      ok "sudo listo (contraseña de SUDO_PASS)"
+      return 0
+    fi
     fallo "La contraseña de SUDO_PASS no funciona"
+    SUDO_PASS=""
+  fi
+
+  # 2) preguntarla en el propio TUI
+  local intento pass
+  for intento in 1 2 3; do
+    if [ "$TIENE_WHIPTAIL" = 1 ] && [ -t 2 ]; then
+      pass=$(whiptail --title "TUIAWSSIM — contraseña" \
+        --passwordbox "Para instalar paquetes necesito tu contraseña de administrador.\n\nNo se guarda en ningún sitio." \
+        11 64 3>&1 1>&2 2>&3) || { info "Cancelado"; return 1; }
+    elif [ -t 0 ]; then
+      printf '\n  Contraseña de sudo (no se verá): '
+      read -rs pass; printf '\n'
+    else
+      fallo "No hay terminal para pedir la contraseña"
+      info "Usa: SUDO_PASS='tu_contraseña' ./floci-tui.sh"
+      return 1
+    fi
+
+    if printf '%s\n' "$pass" | sudo -S -v 2>/dev/null; then
+      SUDO_PASS="$pass"
+      ok "sudo listo"
+      return 0
+    fi
+    fallo "Contraseña incorrecta (intento $intento de 3)"
+  done
+  return 1
+}
+
+# macOS: Rosetta 2 (el sshd de la instancia es x86_64)
+asegurar_rosetta() {
+  [ "$OS_FAMILIA" = "macos" ] || return 0
+  if arch -x86_64 /usr/bin/true 2>/dev/null; then
+    ok "Rosetta 2 ya está instalado"
+    return 0
+  fi
+  info "Instalando Rosetta 2 (lo necesita el sshd x86_64 de la instancia)…"
+  softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || true
+  if arch -x86_64 /usr/bin/true 2>/dev/null; then
+    ok "Rosetta 2 instalado"
+  else
+    aviso "No pude instalar Rosetta 2; el SSH de la instancia podría fallar"
+  fi
+}
+
+# macOS: Docker Desktop desde el DMG (el cask falla sin terminal)
+instalar_docker_desktop_macos() {
+  hay_comando brew || { fallo "Necesitas Homebrew: https://brew.sh"; return 1; }
+  info "Descargando Docker Desktop (~600 MB)…"
+  brew fetch --cask docker >/dev/null 2>&1 || true
+  local dmg
+  dmg=$(readlink -f "$(ls "$HOME"/Library/Caches/Homebrew/Cask/docker-desktop*.dmg 2>/dev/null | head -1)")
+  [ -n "$dmg" ] || { fallo "No se descargó el DMG de Docker Desktop"; return 1; }
+
+  local mnt="/tmp/tuiawssim-dmg-$$"
+  mkdir -p "$mnt"
+  hdiutil attach "$dmg" -nobrowse -quiet -mountpoint "$mnt" || return 1
+  rm -rf /Applications/Docker.app 2>/dev/null
+  if ! cp -R "$mnt/Docker.app" /Applications/; then
+    hdiutil detach "$mnt" -quiet 2>/dev/null
+    fallo "No pude copiar Docker.app a /Applications"
     return 1
   fi
-  info "Se necesita sudo para instalar paquetes. Te lo pido una vez."
-  if ! sudo -v; then
-    fallo "Sin sudo no puedo instalar paquetes"
-    info "Si no hay terminal interactiva: SUDO_PASS='tu_contraseña' ./floci-tui.sh --auto"
-    return 1
-  fi
-  ok "sudo listo"
+  hdiutil detach "$mnt" -quiet 2>/dev/null; rmdir "$mnt" 2>/dev/null
+  ok "Docker.app copiada a /Applications"
+
+  pedir_sudo || return 1
+  local b=/Applications/Docker.app/Contents/Resources/bin
+  SUDO ln -sf "$b/docker" /usr/local/bin/docker
+  SUDO ln -sf "$b/docker-credential-desktop" /usr/local/bin/docker-credential-desktop
+  SUDO ln -sf "$b/docker-compose" /usr/local/bin/docker-compose
+  export PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
+  hash -r
+
+  info "Abriendo Docker Desktop (acepta la licencia si te la pide)…"
+  open -a Docker 2>/dev/null || true
+  info "Esperando al daemon (la primera vez tarda un par de minutos)…"
+  local j
+  for j in $(seq 1 100); do
+    if docker info >/dev/null 2>&1; then
+      ok "Docker responde tras ~$((j*3))s"
+      return 0
+    fi
+    sleep 3
+  done
+  fallo "Docker Desktop no arrancó"
+  info "Ábrelo con: open -a Docker"
+  return 1
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -227,13 +316,15 @@ instalar_docker_macos() {
     return 1
   fi
 
+  asegurar_rosetta
+
   local eleccion=""
   if [ -n "${DOCKER_MAC:-}" ]; then
     eleccion="$DOCKER_MAC"
     info "Usando DOCKER_MAC=$eleccion"
   elif [ "$AUTO" = 1 ] || [ ! -t 0 ]; then
-    eleccion="colima"
-    info "Modo automático: instalo Colima (más ligero y sin app gráfica)"
+    eleccion="desktop"
+    info "Modo automático: instalo Docker Desktop (es el que funciona con el SSH)"
   else
     eleccion=$(tui_menu "Docker en macOS" \
 "  En macOS, Docker necesita una máquina virtual. Dos opciones:
@@ -242,8 +333,8 @@ instalar_docker_macos() {
   · Docker Desktop: la app oficial (~2 GB), con interfaz gráfica.
 
   ¿Cuál prefieres?" \
-      colima "Colima (ligero, terminal, ~1 GB) — recomendado" \
-      desktop "Docker Desktop (app oficial, ~2 GB)" \
+      desktop "Docker Desktop (app oficial, ~2 GB) — recomendado" \
+      colima "Colima (ligero, sin app, ~1 GB) — el SSH no funciona" \
       cancelar "Cancelar") || return 1
   fi
 
@@ -268,21 +359,7 @@ instalar_docker_macos() {
       return 1
       ;;
     desktop)
-      ejecutar "Docker Desktop instalado" brew install --cask docker || return 1
-      info "Abriendo Docker Desktop (si pide aceptar la licencia, acéptala)…"
-      open -a Docker 2>/dev/null || true
-      info "Esperando al daemon: la primera vez tarda un par de minutos."
-      local j
-      for j in $(seq 1 90); do
-        if docker info >/dev/null 2>&1; then
-          ok "Docker Desktop responde tras ~$((j*3))s"
-          return 0
-        fi
-        sleep 3
-      done
-      fallo "Docker Desktop no ha arrancado"
-      info "Ábrelo con: open -a Docker   (y acepta la licencia si la pide)"
-      return 1
+      instalar_docker_desktop_macos || return 1
       ;;
     *) info "Sin Docker no se puede continuar"; return 1 ;;
   esac
@@ -333,7 +410,7 @@ instalar_docker() {
 
 instalar_aws_cli() {
   titulo "AWS CLI v2"
-  if hay_comando aws; then
+  if aws_ok; then
     ok "AWS CLI ya instalada: $(aws --version 2>&1 | head -1)"
     return 0
   fi
@@ -369,7 +446,7 @@ instalar_aws_cli() {
 
 instalar_psql() {
   titulo "Cliente de PostgreSQL"
-  if hay_comando psql; then
+  if psql_ok; then
     ok "psql ya está instalado: $(psql --version)"
     return 0
   fi
@@ -853,8 +930,8 @@ comprobar_equipo() {
     aviso "Docker no está instalado (lo hará el paso de instalación)"
   fi
 
-  if hay_comando aws; then ok "AWS CLI: $(aws --version 2>&1 | head -1)"; else aviso "AWS CLI no instalada"; fi
-  if hay_comando psql; then ok "psql: $(psql --version)"; else aviso "psql no instalado"; fi
+  if aws_ok; then ok "AWS CLI: $(aws --version 2>&1 | head -1)"; else aviso "AWS CLI no instalada (o rota)"; fi
+  if psql_ok; then ok "psql: $(psql --version)"; else aviso "psql no instalado (o roto)"; fi
   if [ "$TIENE_WHIPTAIL" = 1 ]; then ok "Interfaz whiptail disponible"; else aviso "Sin whiptail: usaré modo texto"; fi
 
   # Conflictos de puertos (AnyDesk y compañía)

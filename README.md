@@ -121,6 +121,17 @@ los alumnos **ni descargan 1 GB ni ejecutan el `docker build`**.
 
 ---
 
+### El TUI lo instala todo (incluido Docker)
+
+No hace falta preparar nada antes: el TUI instala lo que falte y te pide la
+contraseña **en su propia ventana** cuando hace falta (sudo).
+
+- **Linux**: `docker.io`, `unzip`, `postgresql-client` y la AWS CLI v2.
+- **macOS**: Rosetta 2 si falta, Docker Desktop (o Colima), `awscli` y `libpq`
+  con Homebrew, y arranca el daemon esperando a que responda.
+- Comprueba que los programas **funcionan** (no solo que existan): un `psql`
+  roto se reinstala.
+
 ### Instalar sin que pregunte la contraseña
 
 Si lanzas el script desde otro script, un cron o una herramienta de despliegue,
