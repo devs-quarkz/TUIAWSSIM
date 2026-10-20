@@ -161,8 +161,38 @@ El script lo detecta solo.
 brew install awscli libpq
 ```
 
-Docker **no** se instala solo: hace falta [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-(o `brew install --cask docker`) abierto, porque el script monta su socket.
+Docker se puede instalar de dos formas, y el TUI te pregunta cuál:
+
+```bash
+./floci-tui.sh                 # pregunta: Colima o Docker Desktop
+DOCKER_MAC=colima  ./floci-tui.sh   # fuerza Colima
+DOCKER_MAC=desktop ./floci-tui.sh   # fuerza Docker Desktop
+```
+
+- **Colima** (recomendado): ligero, de terminal, sin app. El TUI hace
+  `brew install docker colima` y `colima start`. Probado en macOS arm64.
+- **Docker Desktop**: la app oficial, `brew install --cask docker`. Hay que
+  abrirla una vez.
+
+### Qué funciona en macOS con Colima (probado)
+
+| | |
+|---|---|
+| Docker, Floci 2.3.0 | ✓ |
+| Crear instancias EC2 | ✓ |
+| **PostgreSQL + `psql`** | ✓ (probado: 16.3 arm64) |
+| **SSH a la instancia** | ✗ **falla** (autenticación de clave dentro de la VM) |
+
+El SSH es la única parte que no funciona en macOS: el sshd de la instancia
+rechaza la clave incluso con el PAM ya corregido y la clave correcta dentro de
+`authorized_keys`. En Linux (Mint y Ubuntu) funciona sin problema.
+
+Si estás en macOS, puedes hacer toda la práctica **menos** el bloque 5; para
+"entrar" en la instancia usa:
+
+```bash
+docker exec -it $(docker ps --format '{{.Names}}' | grep floci-aws-ec2 | head -1) bash
+```
 
 Para tener los recuadros del menú (opcional):
 
