@@ -923,6 +923,161 @@ consola_psql() {
 # ─────────────────────────────────────────────────────────────
 #  BLOQUE 7 — Limpieza
 # ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+#  Limpieza interactiva: pregunta QUÉ quitar (incluido Docker)
+# ─────────────────────────────────────────────────────────────
+limpiar_interactivo() {
+  titulo "Limpiar"
+
+  # ¿Qué hay realmente en el equipo?
+  local hay_floci=0 hay_imgs=0 hay_dir=0 hay_aws=0 hay_paquete=0
+  local hay_docker=0 hay_awscli=0 hay_psql=0 hay_tui=0 hay_log=0
+  local img
+  if hay_comando docker; then
+    hay_docker=1
+    if [ -n "$(DOCKER ps -aq --filter name=floci 2>/dev/null)" ]; then hay_floci=1; fi
+    for img in "$IMG_FLOCI" "$IMG_PG" "$IMG_ALPINE" "$IMG_BASE"; do
+      tiene_imagen "$img" 2>/dev/null && hay_imgs=1
+    done
+  fi
+  [ -d "$DIR_CLASE" ] && hay_dir=1
+  [ -d "$HOME/.aws" ] && hay_aws=1
+  for img in "$DIR_SCRIPT/imagenes-floci.tar.gz" "$HOME/TUIAWSSIM/imagenes-floci.tar.gz" "$HOME/imagenes-floci.tar.gz"; do
+    [ -f "$img" ] && hay_paquete=1
+  done
+  hay_comando aws  && hay_awscli=1
+  hay_comando psql && hay_psql=1
+  [ -f "$DIR_SCRIPT/floci-tui.sh" ] && hay_tui=1
+  [ -f "$LOG" ] && hay_log=1
+
+  local opciones=() tags=()
+  add() { opciones+=("$1" "$2" "$3"); tags+=("$1"); }
+  [ "$hay_floci" = 1 ]   && add floci     "Contenedor de Floci (instancia EC2 y base de datos)" ON
+  [ "$hay_imgs" = 1 ]    && add imagenes  "Imagenes de la practica (~1,2 GB)" ON
+  [ "$hay_dir" = 1 ]     && add llave     "Carpeta ~/awsclase (la llave .pem)" ON
+  [ "$hay_aws" = 1 ]     && add awsconfig "Configuracion de AWS (~/.aws)" ON
+  [ "$hay_paquete" = 1 ] && add paquete   "Paquete de imagenes (imagenes-floci.tar.gz)" ON
+  [ "$hay_docker" = 1 ]  && add docker    "DOCKER completo (motor, contenedores e imagenes)" OFF
+  [ "$hay_awscli" = 1 ]  && add awscli    "AWS CLI v2" OFF
+  [ "$hay_psql" = 1 ]    && add psql      "Cliente de PostgreSQL (psql)" OFF
+  [ "$hay_tui" = 1 ]     && add tui       "El propio TUI (~/TUIAWSSIM)" OFF
+  [ "$hay_log" = 1 ]     && add log       "Fichero de log (~/floci-practica.log)" OFF
+
+  if [ ${#opciones[@]} -eq 0 ]; then
+    ok "No hay nada de la práctica que quitar"
+    return 0
+  fi
+
+  local sel=""
+  if [ "$TIENE_WHIPTAIL" = 1 ] && [ -t 2 ]; then
+    sel=$(whiptail --title "TUIAWSSIM — limpiar" --checklist \
+"  Marca lo que quieres quitar (espacio para marcar, Enter para aplicar).\n\
+  Lo de arriba es de la práctica; Docker y las herramientas están abajo." \
+      22 78 12 "${opciones[@]}" 3>&1 1>&2 2>&3) || { info "Cancelado"; return 0; }
+  else
+    printf '\n  ¿Qué quito? (s/n a cada cosa)\n\n' >&2
+    local i=0 t
+    while [ $i -lt ${#opciones[@]} ]; do
+      t="${opciones[$i]}"
+      local defecto="${opciones[$((i+2))]}"
+      local pregunta="s/N"
+      [ "$defecto" = "ON" ] && pregunta="S/n"
+      printf '  %-10s %s  [%s] ' "$t" "${opciones[$((i+1))]}" "$pregunta" >&2
+      local r=""
+      read -r r </dev/tty || r=""
+      printf '\n' >&2
+      if [ -z "$r" ]; then
+        [ "$defecto" = "ON" ] && sel="$sel $t"
+      else
+        case "$r" in s|S|si|sí) sel="$sel $t" ;; esac
+      fi
+      i=$((i+3))
+    done
+    printf '\n' >&2
+  fi
+
+  [ -z "$(printf '%s' "$sel" | tr -d ' ')" ] && { info "No has marcado nada"; return 0; }
+
+  printf '\n  Vas a quitar:%s\n\n' "$sel" >&2
+  if ! confirmar "¿Seguro?"; then info "Cancelado"; return 0; fi
+
+  case " $sel " in
+    *" floci "*)
+      local ids
+      ids=$(aws ec2 describe-instances --query "Reservations[].Instances[].InstanceId" --output text 2>/dev/null)
+      [ -n "$ids" ] && [ "$ids" != "None" ] && aws ec2 terminate-instances --instance-ids $ids >/dev/null 2>&1
+      aws rds delete-db-instance --db-instance-identifier "$NOMBRE_DB" --skip-final-snapshot >/dev/null 2>&1
+      DOCKER rm -f $(DOCKER ps -aq --filter name=floci 2>/dev/null) >/dev/null 2>&1
+      ok "Contenedores de Floci eliminados"
+      ;;
+  esac
+  case " $sel " in
+    *" imagenes "*)
+      DOCKER rmi -f "$IMG_FLOCI" "$IMG_PG" "$IMG_ALPINE" "$IMG_BASE" >/dev/null 2>&1
+      ok "Imágenes de la práctica eliminadas"
+      ;;
+  esac
+  case " $sel " in
+    *" llave "*)      rm -rf "$DIR_CLASE"; ok "~/awsclase eliminada" ;;
+    *" awsconfig "*)  rm -rf "$HOME/.aws"; ok "~/.aws eliminada" ;;
+    *" paquete "*)    rm -f "$DIR_SCRIPT/imagenes-floci.tar.gz" "$HOME/TUIAWSSIM/imagenes-floci.tar.gz" "$HOME/imagenes-floci.tar.gz" 2>/dev/null; ok "Paquete de imágenes eliminado" ;;
+    *" log "*)        rm -f "$LOG"; ok "Log eliminado" ;;
+  esac
+  case " $sel " in
+    *" awscli "*)
+      if [ "$OS_FAMILIA" = "macos" ]; then
+        ejecutar "AWS CLI desinstalada" brew uninstall awscli || true
+      else
+        pedir_sudo && { SUDO rm -rf /usr/local/aws-cli; SUDO rm -f /usr/local/bin/aws /usr/local/bin/aws_completer; ok "AWS CLI eliminada"; }
+      fi
+      ;;
+  esac
+  case " $sel " in
+    *" psql "*)
+      if [ "$OS_FAMILIA" = "macos" ]; then
+        ejecutar "psql desinstalado" brew uninstall libpq postgresql@16 postgresql@17 postgresql@18 2>/dev/null || true
+      else
+        pedir_sudo && { SUDO env DEBIAN_FRONTEND=noninteractive apt-get purge -y "postgresql-client*" >/dev/null 2>&1; ok "psql eliminado"; }
+      fi
+      ;;
+  esac
+  case " $sel " in
+    *" docker "*)
+      info "Desinstalando Docker…"
+      if [ "$OS_FAMILIA" = "macos" ]; then
+        osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
+        pkill -f com.docker.backend 2>/dev/null
+        sleep 3
+        pedir_sudo && SUDO rm -f /usr/local/bin/docker /usr/local/bin/docker-compose \
+          /usr/local/bin/docker-credential-desktop /usr/local/bin/docker-credential-osxkeychain 2>/dev/null
+        rm -rf /Applications/Docker.app 2>/dev/null
+        SUDO rm -rf /Applications/Docker.app 2>/dev/null
+        rm -rf "$HOME/.docker" "$HOME/Library/Containers/com.docker.docker" \
+               "$HOME/Library/Group Containers/group.com.docker" \
+               "$HOME/Library/Application Support/Docker Desktop" 2>/dev/null
+        SUDO rm -rf "$HOME/Library/Containers/com.docker.docker" 2>/dev/null
+        ok "Docker Desktop eliminado"
+      else
+        pedir_sudo && {
+          SUDO systemctl stop docker docker.socket 2>/dev/null
+          SUDO env DEBIAN_FRONTEND=noninteractive apt-get purge -y docker.io containerd docker-compose-v2 >/dev/null 2>&1
+          ok "Docker eliminado"
+        }
+      fi
+      ;;
+  esac
+  case " $sel " in
+    *" tui "*)
+      info "El TUI se borra al terminar (está en ejecución)."
+      touch /tmp/.tuiawssim-borrar-tui 2>/dev/null
+      ;;
+  esac
+
+  printf '\n'
+  ok "Limpieza terminada"
+  return 0
+}
+
 limpiar_todo() {
   titulo "Limpiar"
   if [ -n DOCKER ]; then
@@ -1128,7 +1283,7 @@ menu_principal() {
       7 "Entrar por SSH en la instancia" \
       8 "Crear la base de datos" \
       9 "Consultar y crear tablas con SQL" \
-     10 "Limpieza final" \
+     10 "Limpiar (elige qué quitar, incluido Docker)" \
      12 "Exportar imágenes para clase sin internet (profesor)" \
      11 "Ver el log" \
       0 "Salir" ) || break
@@ -1143,7 +1298,7 @@ menu_principal() {
       7) entrar_en_instancia; pausa ;;
       8) crear_base_datos; pausa ;;
       9) consulta_version && crear_tabla && consola_psql; pausa ;;
-     10) confirmar "¿Seguro que quieres limpiar todo?" && limpiar_todo; pausa ;;
+     10) limpiar_interactivo; pausa ;;
      12) exportar_imagenes; pausa ;;
      11) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
       0) break ;;
