@@ -23,8 +23,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --servidor) SERVIDOR="${2%/}"; shift 2 ;;
     --destino)  DESTINO="$2"; shift 2 ;;
-    --auto|--limpiar|--ayuda|-h|--help) ARG_TUI+=("$1"); shift ;;
-    *) shift ;;
+    --ayuda|-h|--help) ARG_TUI+=("$1"); shift ;;
+    *) ARG_TUI+=("$1"); shift ;;   # todo lo demás se le pasa al TUI
   esac
 done
 

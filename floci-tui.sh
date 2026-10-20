@@ -37,7 +37,6 @@ DB_PASS="secreto123"
 
 # Estado de la sesión
 PUERTO_DB=7001
-DOCKER=""            # "docker" o "sudo docker"
 IP_INSTANCIA=""
 SSH_PUERTO=""
 SIN_INTERNET=0
@@ -116,9 +115,9 @@ puerto_libre() {
 
 ssh_puerto_publicado() {
   local c
-  c=$($DOCKER ps --format '{{.Names}}' 2>/dev/null | grep -m1 '^floci-aws-ec2' || true)
+  c=$(DOCKER ps --format '{{.Names}}' 2>/dev/null | grep -m1 '^floci-aws-ec2' || true)
   [ -n "$c" ] || return 1
-  $DOCKER port "$c" 22 2>/dev/null | head -1 | sed 's/.*://' | tr -d ' '
+  DOCKER port "$c" 22 2>/dev/null | head -1 | sed 's/.*://' | tr -d ' '
 }
 
 elegir_puerto_db() {
@@ -132,17 +131,18 @@ elegir_puerto_db() {
 }
 
 detectar_docker_cmd() {
-  if ! hay_comando docker; then DOCKER=""; return 1; fi
+  DOCKER_MODO=""
+  if ! hay_comando docker; then return 1; fi
   if docker info >/dev/null 2>&1; then
-    DOCKER="docker"
-  elif sudo -n docker info >/dev/null 2>&1 || sudo docker info >/dev/null 2>&1; then
-    DOCKER="sudo docker"
-    aviso "El grupo docker no está activo en esta sesión: usaré 'sudo docker'"
-  else
-    DOCKER=""
-    return 1
+    DOCKER_MODO=""
+    return 0
   fi
-  return 0
+  if SUDO docker info >/dev/null 2>&1; then
+    DOCKER_MODO="sudo"
+    aviso "El grupo docker no está activo en esta sesión: usaré 'sudo docker'"
+    return 0
+  fi
+  return 1
 }
 
 distro() {
@@ -176,11 +176,33 @@ architecture() {
   esac
 }
 
+# Ejecuta sudo; si SUDO_PASS está definida, se la pasa por stdin (útil para
+# instalaciones desatendidas o cuando no hay terminal interactiva).
+SUDO() {
+  if [ -n "${SUDO_PASS:-}" ]; then
+    printf '%s\n' "$SUDO_PASS" | sudo -S "$@" 2>/dev/null
+  else
+    sudo "$@"
+  fi
+}
+
+# Docker, con sudo si el grupo no está activo en esta sesión.
+DOCKER_MODO=""
+DOCKER() {
+  if [ "$DOCKER_MODO" = "sudo" ]; then SUDO docker "$@"; else docker "$@"; fi
+}
+
 pedir_sudo() {
   if sudo -n true 2>/dev/null; then return 0; fi
+  if [ -n "${SUDO_PASS:-}" ]; then
+    printf '%s\n' "$SUDO_PASS" | sudo -S -v 2>/dev/null && { ok "sudo listo (contraseña de SUDO_PASS)"; return 0; }
+    fallo "La contraseña de SUDO_PASS no funciona"
+    return 1
+  fi
   info "Se necesita sudo para instalar paquetes. Te lo pido una vez."
   if ! sudo -v; then
     fallo "Sin sudo no puedo instalar paquetes"
+    info "Si no hay terminal interactiva: SUDO_PASS='tu_contraseña' ./floci-tui.sh --auto"
     return 1
   fi
   ok "sudo listo"
@@ -206,8 +228,8 @@ instalar_docker() {
         ;;
       debian)
         pedir_sudo || return 1
-        ejecutar "Índices de paquetes actualizados" sudo apt-get update || true
-        ejecutar "Docker instalado" sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io || return 1
+        ejecutar "Índices de paquetes actualizados" SUDO apt-get update || true
+        ejecutar "Docker instalado" SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io || return 1
         ;;
       *) fallo "Distribución no soportada"; return 1 ;;
     esac
@@ -216,13 +238,13 @@ instalar_docker() {
   # Permisos: si el grupo no está activo, el script usará sudo docker
   if [ "$OS_FAMILIA" != "macos" ] && ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
     pedir_sudo || return 1
-    ejecutar "Añadido al grupo docker" sudo usermod -aG docker "$USER" || true
+    ejecutar "Añadido al grupo docker" SUDO usermod -aG docker "$USER" || true
     aviso "Para usar 'docker' sin sudo hay que cerrar sesión y volver a entrar."
     info "Mientras tanto este script usará 'sudo docker'."
   fi
 
   detectar_docker_cmd || { fallo "No consigo hablar con el demonio de Docker"; return 1; }
-  ok "Usaré: $DOCKER"
+  ok "Usaré: docker${DOCKER_MODO:+ con sudo}"
 }
 
 instalar_aws_cli() {
@@ -243,12 +265,12 @@ instalar_aws_cli() {
       ;;
     debian)
       pedir_sudo || return 1
-      ejecutar "unzip instalado" sudo DEBIAN_FRONTEND=noninteractive apt-get install -y unzip || return 1
+      ejecutar "unzip instalado" SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y unzip || return 1
       cd "$HOME" || return 1
       ejecutar "Descargando la AWS CLI v2 ($arq)" \
         curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-${arq}.zip" -o awscliv2.zip || return 1
       ejecutar "Descomprimiendo" unzip -q -o awscliv2.zip || return 1
-      ejecutar "Instalando la AWS CLI" sudo ./aws/install --update || return 1
+      ejecutar "Instalando la AWS CLI" SUDO ./aws/install --update || return 1
       ;;
     *) fallo "Instala la AWS CLI v2 a mano"; return 1 ;;
   esac
@@ -279,7 +301,7 @@ instalar_psql() {
       ;;
     debian)
       pedir_sudo || return 1
-      ejecutar "psql instalado" sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-client || return 1
+      ejecutar "psql instalado" SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-client || return 1
       ;;
     *) fallo "Instala el cliente de PostgreSQL a mano"; return 1 ;;
   esac
@@ -289,11 +311,11 @@ instalar_psql() {
 # ─────────────────────────────────────────────────────────────
 #  BLOQUE 2 — Imágenes
 # ─────────────────────────────────────────────────────────────
-tiene_imagen() { $DOCKER image inspect "$1" >/dev/null 2>&1; }
+tiene_imagen() { DOCKER image inspect "$1" >/dev/null 2>&1; }
 
 preparar_imagenes() {
   titulo "Imágenes de Docker"
-  [ -n "$DOCKER" ] || { fallo "Docker no está listo"; return 1; }
+  hay_comando docker || { fallo "Docker no está listo"; return 1; }
 
   local img
   for img in "$IMG_FLOCI" "$IMG_PG" "$IMG_ALPINE" "$IMG_BASE"; do
@@ -305,7 +327,7 @@ preparar_imagenes() {
       fallo "Falta $img y no hay internet. Descárgala en casa (bloque 2 del guion)."
       return 1
     fi
-    ejecutar "Descargando $img" $DOCKER pull "$img" || return 1
+    ejecutar "Descargando $img" DOCKER pull "$img" || return 1
   done
 
   if imagen_ec2_lista; then
@@ -316,7 +338,7 @@ preparar_imagenes() {
 }
 
 imagen_ec2_lista() {
-  $DOCKER run --rm "$IMG_BASE" sh -c 'grep -qx "account required pam_permit.so" /etc/pam.d/sshd && test -x /usr/sbin/sshd' >/dev/null 2>&1
+  DOCKER run --rm "$IMG_BASE" sh -c 'grep -qx "account required pam_permit.so" /etc/pam.d/sshd && test -x /usr/sbin/sshd' >/dev/null 2>&1
 }
 
 construir_imagen_ec2() {
@@ -330,7 +352,7 @@ RUN dnf install -y openssh-server openssh-clients && dnf clean all
 RUN sed -i /account/d /etc/pam.d/sshd
 RUN echo account required pam_permit.so >> /etc/pam.d/sshd
 EOF
-  ejecutar "Imagen de EC2 construida" $DOCKER build -t "$IMG_BASE" -f "$df" . || { rm -f "$df"; return 1; }
+  ejecutar "Imagen de EC2 construida" DOCKER build -t "$IMG_BASE" -f "$df" . || { rm -f "$df"; return 1; }
   rm -f "$df"
 
   if imagen_ec2_lista; then
@@ -338,7 +360,7 @@ EOF
     return 0
   fi
   fallo "La imagen no pasó la verificación. Revisa el log: $LOG"
-  $DOCKER run --rm "$IMG_BASE" sh -c 'grep account /etc/pam.d/sshd; ls /usr/sbin/sshd' 2>&1 | tee -a "$LOG"
+  DOCKER run --rm "$IMG_BASE" sh -c 'grep account /etc/pam.d/sshd; ls /usr/sbin/sshd' 2>&1 | tee -a "$LOG"
   return 1
 }
 
@@ -358,11 +380,11 @@ configurar_aws() {
 
 arrancar_floci() {
   titulo "Arrancar Floci"
-  [ -n "$DOCKER" ] || { fallo "Docker no está listo"; return 1; }
+  hay_comando docker || { fallo "Docker no está listo"; return 1; }
 
-  if $DOCKER ps -a --format '{{.Names}}' | grep -qx "$NOMBRE_FLOCI"; then
+  if DOCKER ps -a --format '{{.Names}}' | grep -qx "$NOMBRE_FLOCI"; then
     info "Había un contenedor '$NOMBRE_FLOCI' de antes: lo reemplazo"
-    ejecutar "Contenedor antiguo eliminado" $DOCKER rm -f "$NOMBRE_FLOCI" || true
+    ejecutar "Contenedor antiguo eliminado" DOCKER rm -f "$NOMBRE_FLOCI" || true
   fi
 
   elegir_puerto_db || return 1
@@ -374,7 +396,7 @@ arrancar_floci() {
   fi
 
   ejecutar "Floci arrancado" \
-    $DOCKER run -d --name "$NOMBRE_FLOCI" \
+    DOCKER run -d --name "$NOMBRE_FLOCI" \
       -p "127.0.0.1:4566:4566" \
       -p "127.0.0.1:${PUERTO_DB}:7001" \
       -v /var/run/docker.sock:/var/run/docker.sock \
@@ -390,7 +412,7 @@ arrancar_floci() {
       break
     fi
     sleep 1
-    [ "$i" = 60 ] && { fallo "Floci no responde. Mira: $DOCKER logs $NOMBRE_FLOCI"; return 1; }
+    [ "$i" = 60 ] && { fallo "Floci no responde. Mira: DOCKER logs $NOMBRE_FLOCI"; return 1; }
   done
 
   configurar_aws || return 1
@@ -415,7 +437,7 @@ crear_instancia() {
 
   if [ -s "$CLAVE" ]; then
     ok "La llave ya existe: $CLAVE"
-    $DOCKER exec "$NOMBRE_FLOCI" sh -c "true" >/dev/null 2>&1 || true
+    DOCKER exec "$NOMBRE_FLOCI" sh -c "true" >/dev/null 2>&1 || true
   else
     aws ec2 create-key-pair --key-name "$NOMBRE_EC2" --query KeyMaterial --output text >"$CLAVE" 2>>"$LOG"
     if [ -s "$CLAVE" ]; then
@@ -614,7 +636,7 @@ consola_psql() {
 # ─────────────────────────────────────────────────────────────
 limpiar_todo() {
   titulo "Limpiar"
-  if [ -n "$DOCKER" ]; then
+  if [ -n DOCKER ]; then
     local ids
     ids=$(aws ec2 describe-instances --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null)
     if [ -n "$ids" ] && [ "$ids" != "None" ]; then
@@ -624,11 +646,11 @@ limpiar_todo() {
     aws rds delete-db-instance --db-instance-identifier "$NOMBRE_DB" --skip-final-snapshot \
         >/dev/null 2>>"$LOG" && ok "Base de datos borrada"
 
-    $DOCKER rm -f "$NOMBRE_FLOCI" >/dev/null 2>&1 && ok "Contenedor floci eliminado"
+    DOCKER rm -f "$NOMBRE_FLOCI" >/dev/null 2>&1 && ok "Contenedor floci eliminado"
     # Contenedores auxiliares de Floci (volúmenes de instancias)
     local aux
-    for aux in $($DOCKER ps -a --format '{{.Names}}' | grep '^floci-aws-ec2' || true); do
-      $DOCKER rm -f "$aux" >/dev/null 2>&1 && info "Auxiliar eliminado: $aux"
+    for aux in $(DOCKER ps -a --format '{{.Names}}' | grep '^floci-aws-ec2' || true); do
+      DOCKER rm -f "$aux" >/dev/null 2>&1 && info "Auxiliar eliminado: $aux"
     done
   fi
   rm -rf "$DIR_CLASE" && ok "Carpeta ~/awsclase borrada"
@@ -681,7 +703,7 @@ comprobar_equipo() {
     ok "Rango 7001-7099 libre"
   fi
 
-  [ -n "$DOCKER" ] && ok "Docker usable como: $DOCKER"
+  [ -n DOCKER ] && ok "Docker usable como: $DOCKER"
   echo
   detectar_docker_cmd >/dev/null 2>&1 || true
 }
@@ -763,7 +785,7 @@ tui_menu() { # tui_menu "título" "texto" tag desc tag desc …
 }
 
 tui_pantalla() {
-  clear
+  clear 2>/dev/null || true
   cat <<EOF
 ${C_CYAN}  ███████╗██╗      ██████╗  ██████╗██╗
   ██╔════╝██║     ██╔═══██╗██╔════╝██║
@@ -777,6 +799,12 @@ EOF
 
 menu_principal() {
   local opcion
+  if [ ! -t 0 ]; then
+    aviso "No hay una terminal interactiva (¿lo estás lanzando desde un script?)."
+    info "Usa el modo automático:  ./floci-tui.sh --auto"
+    info "O el diagnóstico:        ./floci-tui.sh --comprobar"
+    return 1
+  fi
   while true; do
     tui_pantalla
     # El estado resumido debajo del banner
@@ -785,7 +813,7 @@ menu_principal() {
 "  Elige qué hacer. Lo más fácil: la opción 1.
 
   Estado actual:
-    Docker:     ${DOCKER:-no listo}
+    Docker:     ${DOCKER_MODO:+docker con sudo}${DOCKER_MODO:-docker}
     Instancia:  ${IP_INSTANCIA:-ninguna}
     Puerto DB:  ${PUERTO_DB}" \
       1 "Empezar la práctica guiada (instala y hace todo)" \

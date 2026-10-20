@@ -27,6 +27,11 @@ Todo lo que crea queda en Docker, `~/awsclase`, `~/.aws` y
 
 ---
 
+> [!IMPORTANT]
+> El comando de abajo **solo funciona si el repositorio es público**. Si está
+> privado, usa el servidor del profesor (siguiente sección) o clona con
+> `git clone git@github.com:...`.
+
 ## Instalación rápida (con internet)
 
 ```bash
@@ -102,8 +107,20 @@ docker load < ~/TUIAWSSIM/imagenes-floci.tar.gz
 | `./servir.sh [puerto]` | Sirve el proyecto por HTTP para la clase |
 | `curl … \| bash` | Descarga e instala desde GitHub |
 | `curl … \| bash -s -- --servidor URL` | Descarga e instala desde el profesor |
+| `SUDO_PASS=… ./floci-tui.sh --auto` | Igual, pero sin que pida la contraseña de sudo |
 
 ---
+
+### Instalar sin que pregunte la contraseña
+
+Si lanzas el script desde otro script, un cron o una herramienta de despliegue,
+no hay terminal donde escribir la contraseña de `sudo`. Puedes pasarla así:
+
+```bash
+SUDO_PASS='tu_contraseña' ./floci-tui.sh --auto
+```
+
+Solo se usa para los `apt install`, no se guarda en ningún sitio.
 
 ## Requisitos por sistema
 
@@ -180,7 +197,8 @@ TUIAWSSIM/
 
 ## Probado en
 
-- Linux Mint 22.3 (Docker 29.9.1, psql 16.15) — bloques 2 a 7 completos
+- Linux Mint 22.3 **desde cero** (sin Docker ni AWS CLI): el TUI instaló todo,
+  hizo la práctica completa y limpió — sin un solo error
 - Ubuntu 24.04.4 LTS (Docker 29.1.3, psql 16.15)
 - macOS (por probar en la versión publicada)
 
