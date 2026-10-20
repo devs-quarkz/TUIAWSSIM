@@ -50,6 +50,7 @@ SIN_INTERNET=0
 AUTO=0
 LIMPIAR=0
 SOLO_COMPROBAR=0
+DESINSTALAR_DOCKER=0
 EXPORTAR=""
 CARGAR=""
 
@@ -924,6 +925,64 @@ consola_psql() {
 #  BLOQUE 7 — Limpieza
 # ─────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────
+#  Docker: quitarlo del todo (motor, contenedores, imágenes)
+# ─────────────────────────────────────────────────────────────
+quitar_docker_ahora() {
+  if [ "$OS_FAMILIA" = "macos" ]; then
+    osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
+    osascript -e 'quit app "Docker"' 2>/dev/null || true
+    pkill -f com.docker.backend 2>/dev/null
+    sleep 3
+    pedir_sudo || return 1
+    SUDO rm -f /usr/local/bin/docker /usr/local/bin/docker-compose \
+                /usr/local/bin/docker-credential-desktop /usr/local/bin/docker-credential-osxkeychain 2>/dev/null
+    SUDO rm -rf /Applications/Docker.app 2>/dev/null
+    rm -rf /Applications/Docker.app 2>/dev/null
+    rm -rf "$HOME/.docker" "$HOME/Library/Containers/com.docker.docker" \
+           "$HOME/Library/Group Containers/group.com.docker" \
+           "$HOME/Library/Application Support/Docker Desktop" \
+           "$HOME/Library/Logs/Docker Desktop" 2>/dev/null
+    SUDO rm -rf "$HOME/Library/Containers/com.docker.docker" 2>/dev/null
+    SUDO rm -f /Library/LaunchDaemons/com.docker.* 2>/dev/null
+  else
+    pedir_sudo || return 1
+    SUDO systemctl stop docker docker.socket 2>/dev/null
+    SUDO env DEBIAN_FRONTEND=noninteractive apt-get purge -y docker.io containerd docker-compose-v2 >/dev/null 2>&1
+  fi
+  return 0
+}
+
+desinstalar_docker() {
+  titulo "Desinstalar Docker"
+  if ! hay_comando docker && [ ! -d /Applications/Docker.app ]; then
+    ok "Docker no está instalado en este equipo: no hay nada que quitar"
+    return 0
+  fi
+
+  printf '\n' >&2
+  info "Esto quita Docker ENTERO: el motor y TODOS sus contenedores e imágenes"
+  info "(no solo los de la práctica)."
+  if [ "$OS_FAMILIA" = "macos" ]; then
+    info "En macOS incluye la app Docker Desktop, su máquina virtual y sus datos."
+  else
+    info "En Linux incluye el paquete docker.io y containerd."
+  fi
+  printf '\n' >&2
+  aviso "No se puede deshacer."
+  printf '\n' >&2
+
+  confirmar "¿Desinstalo Docker?" || { info "Cancelado"; return 0; }
+  quitar_docker_ahora || { fallo "No pude desinstalarlo del todo"; return 1; }
+
+  if hay_comando docker || [ -d /Applications/Docker.app ]; then
+    fallo "Quedan restos (puede que el demonio estuviera en uso)"
+    return 1
+  fi
+  ok "Docker desinstalado"
+  info "Las herramientas (AWS CLI, psql) no se tocan; están en la limpieza."
+}
+
+# ─────────────────────────────────────────────────────────────
 #  Limpieza interactiva: pregunta QUÉ quitar (incluido Docker)
 # ─────────────────────────────────────────────────────────────
 limpiar_interactivo() {
@@ -1044,26 +1103,7 @@ limpiar_interactivo() {
   case " $sel " in
     *" docker "*)
       info "Desinstalando Docker…"
-      if [ "$OS_FAMILIA" = "macos" ]; then
-        osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
-        pkill -f com.docker.backend 2>/dev/null
-        sleep 3
-        pedir_sudo && SUDO rm -f /usr/local/bin/docker /usr/local/bin/docker-compose \
-          /usr/local/bin/docker-credential-desktop /usr/local/bin/docker-credential-osxkeychain 2>/dev/null
-        rm -rf /Applications/Docker.app 2>/dev/null
-        SUDO rm -rf /Applications/Docker.app 2>/dev/null
-        rm -rf "$HOME/.docker" "$HOME/Library/Containers/com.docker.docker" \
-               "$HOME/Library/Group Containers/group.com.docker" \
-               "$HOME/Library/Application Support/Docker Desktop" 2>/dev/null
-        SUDO rm -rf "$HOME/Library/Containers/com.docker.docker" 2>/dev/null
-        ok "Docker Desktop eliminado"
-      else
-        pedir_sudo && {
-          SUDO systemctl stop docker docker.socket 2>/dev/null
-          SUDO env DEBIAN_FRONTEND=noninteractive apt-get purge -y docker.io containerd docker-compose-v2 >/dev/null 2>&1
-          ok "Docker eliminado"
-        }
-      fi
+      quitar_docker_ahora && ok "Docker eliminado"
       ;;
   esac
   case " $sel " in
@@ -1284,8 +1324,9 @@ menu_principal() {
       8 "Crear la base de datos" \
       9 "Consultar y crear tablas con SQL" \
      10 "Limpiar (elige qué quitar, incluido Docker)" \
+     11 "Desinstalar Docker (con confirmación)" \
      12 "Exportar imágenes para clase sin internet (profesor)" \
-     11 "Ver el log" \
+     13 "Ver el log" \
       0 "Salir" ) || break
 
     case "$opcion" in
@@ -1299,8 +1340,9 @@ menu_principal() {
       8) crear_base_datos; pausa ;;
       9) consulta_version && crear_tabla && consola_psql; pausa ;;
      10) limpiar_interactivo; pausa ;;
+     11) desinstalar_docker; pausa ;;
      12) exportar_imagenes; pausa ;;
-     11) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
+     13) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
       0) break ;;
       *) ;;
     esac
@@ -1320,6 +1362,7 @@ floci-tui.sh — instalador y guía de la práctica de Floci
   ./floci-tui.sh --comprobar        Solo diagnostica, sin tocar nada
   ./floci-tui.sh --exportar [f]     Guarda las 4 imágenes en un fichero (profesor)
   ./floci-tui.sh --cargar <f>       Carga ese fichero de imágenes (alumno)
+  ./floci-tui.sh --desinstalar-docker   Quita Docker sin preguntar (cuidado)
 
 En macOS:
   DOCKER_MAC=colima   ./floci-tui.sh    instala Colima (ligero, recomendado)
@@ -1347,6 +1390,7 @@ main() {
       --comprobar) SOLO_COMPROBAR=1 ;;
       --exportar)  EXPORTAR="${2:-$PWD/imagenes-floci.tar.gz}"; shift ;;
       --cargar)    CARGAR="$2"; shift ;;
+      --desinstalar-docker) DESINSTALAR_DOCKER=1 ;;
       --limpiar)  LIMPIAR=1 ;;
       --ayuda|-h|--help) mostrar_ayuda; exit 0 ;;
       *) printf 'Opción desconocida: %s (usa --ayuda)\n' "$1"; exit 2 ;;
@@ -1358,6 +1402,7 @@ main() {
   : >"$LOG" 2>/dev/null || true
   log "floci-practica.sh $VERSION_SCRIPT — inicio (auto=$AUTO limpiar=$LIMPIAR)"
 
+  if [ "$DESINSTALAR_DOCKER" = 1 ]; then quitar_docker_ahora; exit $?; fi
   if [ -n "$EXPORTAR" ]; then exportar_imagenes "$EXPORTAR"; exit $?; fi
   if [ -n "$CARGAR" ];   then cargar_imagenes "$CARGAR";   exit $?; fi
 
