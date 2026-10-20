@@ -214,6 +214,64 @@ pedir_sudo() {
 # ─────────────────────────────────────────────────────────────
 #  BLOQUE 0 y 1 — Instalación
 # ─────────────────────────────────────────────────────────────
+# Instalar Docker en macOS: Colima (ligero) o Docker Desktop (gráfico)
+instalar_docker_macos() {
+  if ! hay_comando brew; then
+    fallo "Necesitas Homebrew: https://brew.sh"
+    return 1
+  fi
+
+  local eleccion=""
+  if [ -n "${DOCKER_MAC:-}" ]; then
+    eleccion="$DOCKER_MAC"
+    info "Usando DOCKER_MAC=$eleccion"
+  elif [ "$AUTO" = 1 ] || [ ! -t 0 ]; then
+    eleccion="colima"
+    info "Modo automático: instalo Colima (más ligero y sin app gráfica)"
+  else
+    eleccion=$(tui_menu "Docker en macOS" \
+"  En macOS, Docker necesita una máquina virtual. Dos opciones:
+
+  · Colima: ligero (~1 GB), de terminal, sin iconos. Recomendado.
+  · Docker Desktop: la app oficial (~2 GB), con interfaz gráfica.
+
+  ¿Cuál prefieres?" \
+      colima "Colima (ligero, terminal, ~1 GB) — recomendado" \
+      desktop "Docker Desktop (app oficial, ~2 GB)" \
+      cancelar "Cancelar") || return 1
+  fi
+
+  case "$eleccion" in
+    colima)
+      ejecutar "Cliente de Docker instalado" brew install docker || return 1
+      ejecutar "Colima instalado" brew install colima || return 1
+      info "Arrancando la máquina virtual de Colima (2 CPU, 4 GB RAM, 20 GB disco)…"
+      info "La primera vez descarga la imagen de la VM y tarda un par de minutos."
+      ejecutar "Colima arrancado" colima start --cpu 2 --memory 4 --disk 20 || return 1
+      info "Esperando al demonio de Docker…"
+      local i
+      for i in $(seq 1 60); do
+        if docker info >/dev/null 2>&1; then
+          ok "Docker responde a través de Colima tras ~$((i*2))s"
+          return 0
+        fi
+        sleep 2
+      done
+      fallo "Colima arrancó pero el demonio no responde"
+      info "Prueba: colima status   y   docker context ls"
+      return 1
+      ;;
+    desktop)
+      ejecutar "Docker Desktop descargado" brew install --cask docker || return 1
+      info "Docker Desktop necesita abrirse al menos una vez:"
+      info "  open -a Docker"
+      info "Espera a que el icono de la ballena deje de girar y vuelve a ejecutar."
+      return 1
+      ;;
+    *) info "Sin Docker no se puede continuar"; return 1 ;;
+  esac
+}
+
 instalar_docker() {
   titulo "Docker"
   if hay_comando docker; then
@@ -225,9 +283,7 @@ instalar_docker() {
     fi
     case "$OS_FAMILIA" in
       macos)
-        fallo "Docker no está instalado en este Mac"
-        info "Instala Docker Desktop desde https://www.docker.com/products/docker-desktop/"
-        return 1
+        instalar_docker_macos || return 1
         ;;
       debian)
         pedir_sudo || return 1
@@ -246,7 +302,16 @@ instalar_docker() {
     info "Mientras tanto este script usará 'sudo docker'."
   fi
 
-  detectar_docker_cmd || { fallo "No consigo hablar con el demonio de Docker"; return 1; }
+  if ! detectar_docker_cmd; then
+    if [ "$OS_FAMILIA" = "macos" ] && hay_comando colima; then
+      info "El demonio no responde; pruebo a arrancar Colima."
+      colima start >/dev/null 2>&1 || true
+      detectar_docker_cmd || { fallo "No consigo hablar con el demonio de Docker"; return 1; }
+    else
+      fallo "No consigo hablar con el demonio de Docker"
+      return 1
+    fi
+  fi
   ok "Usaré: docker${DOCKER_MODO:+ con sudo}"
 }
 
@@ -535,6 +600,27 @@ crear_instancia() {
 # ─────────────────────────────────────────────────────────────
 #  BLOQUE 5 — SSH (con la espera larga que descubrimos)
 # ─────────────────────────────────────────────────────────────
+# Floci puede usar una imagen cacheada sin el arreglo de PAM. Si pasa,
+# se remedia dentro de la instancia: borrar las líneas account y poner
+# pam_permit, y reiniciar el sshd.
+arreglar_pam_instancia() {
+  local c
+  c=$($DOCKER ps --format '{{.Names}}' 2>/dev/null | grep -m1 '^floci-aws-ec2' || true)
+  [ -n "$c" ] || return 0
+  if ! $DOCKER exec "$c" test -f /etc/pam.d/sshd >/dev/null 2>&1; then
+    return 0   # todavía no está instalado sshd; se reintentará
+  fi
+  if $DOCKER exec "$c" grep -q pam_permit /etc/pam.d/sshd >/dev/null 2>&1; then
+    return 0   # ya está bien
+  fi
+  info "La imagen en uso no traía el arreglo de PAM; lo aplico dentro de la instancia."
+  $DOCKER exec "$c" sh -c "sed -i /account/d /etc/pam.d/sshd; echo account required pam_permit.so >> /etc/pam.d/sshd" >/dev/null 2>&1
+  $DOCKER exec "$c" sh -c "pkill sshd 2>/dev/null; sleep 1; /usr/sbin/sshd" >/dev/null 2>&1 || true
+  if $DOCKER exec "$c" grep -q pam_permit /etc/pam.d/sshd 2>/dev/null; then
+    ok "PAM corregido dentro de la instancia"
+  fi
+}
+
 esperar_ssh() {
   titulo "Entrar por SSH en la instancia"
   [ -n "$IP_INSTANCIA" ] && [ "$IP_INSTANCIA" != "None" ] || { fallo "No tengo la IP de la instancia"; return 1; }
@@ -543,6 +629,7 @@ esperar_ssh() {
   info "Voy a probar hasta 3 minutos, sin que tengas que hacer nada."
   local i r puerto
   for i in $(seq 1 60); do
+    arreglar_pam_instancia
     puerto=$(ssh_puerto_publicado || true)
     if [ "$OS_FAMILIA" = "macos" ] && [ -n "$puerto" ]; then
       r=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -918,6 +1005,10 @@ floci-tui.sh — instalador y guía de la práctica de Floci
   ./floci-tui.sh --comprobar        Solo diagnostica, sin tocar nada
   ./floci-tui.sh --exportar [f]     Guarda las 4 imágenes en un fichero (profesor)
   ./floci-tui.sh --cargar <f>       Carga ese fichero de imágenes (alumno)
+
+En macOS:
+  DOCKER_MAC=colima   ./floci-tui.sh    instala Colima (ligero, recomendado)
+  DOCKER_MAC=desktop  ./floci-tui.sh    instala Docker Desktop
   ./floci-tui.sh --ayuda            Esto
 
 Hace, en orden:
