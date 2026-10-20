@@ -13,6 +13,12 @@
 #
 set -o pipefail
 
+# En macOS, Docker Desktop trae sus binarios dentro de la app.
+if [ -d /Applications/Docker.app/Contents/Resources/bin ]; then
+  PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
+  export PATH
+fi
+
 # ─────────────────────────────────────────────────────────────
 #  Constantes
 # ─────────────────────────────────────────────────────────────
@@ -262,10 +268,20 @@ instalar_docker_macos() {
       return 1
       ;;
     desktop)
-      ejecutar "Docker Desktop descargado" brew install --cask docker || return 1
-      info "Docker Desktop necesita abrirse al menos una vez:"
-      info "  open -a Docker"
-      info "Espera a que el icono de la ballena deje de girar y vuelve a ejecutar."
+      ejecutar "Docker Desktop instalado" brew install --cask docker || return 1
+      info "Abriendo Docker Desktop (si pide aceptar la licencia, acéptala)…"
+      open -a Docker 2>/dev/null || true
+      info "Esperando al daemon: la primera vez tarda un par de minutos."
+      local j
+      for j in $(seq 1 90); do
+        if docker info >/dev/null 2>&1; then
+          ok "Docker Desktop responde tras ~$((j*3))s"
+          return 0
+        fi
+        sleep 3
+      done
+      fallo "Docker Desktop no ha arrancado"
+      info "Ábrelo con: open -a Docker   (y acepta la licencia si la pide)"
       return 1
       ;;
     *) info "Sin Docker no se puede continuar"; return 1 ;;
@@ -511,11 +527,18 @@ arrancar_floci() {
     info "Es el mismo apaño que documenta la guía: solo cambia el -p."
   fi
 
+  # En macOS el socket de Docker Desktop está dentro de la app
+  local socket="/var/run/docker.sock"
+  if [ "$OS_FAMILIA" = "macos" ] && [ -S "$HOME/.docker/run/docker.sock" ]; then
+    socket="$HOME/.docker/run/docker.sock"
+    info "Socket de Docker Desktop: $socket"
+  fi
+
   ejecutar "Floci arrancado" \
     DOCKER run -d --name "$NOMBRE_FLOCI" \
       -p "127.0.0.1:4566:4566" \
       -p "127.0.0.1:${PUERTO_DB}:7001" \
-      -v /var/run/docker.sock:/var/run/docker.sock \
+      -v "$socket":/var/run/docker.sock \
       -e FLOCI_SERVICES_UI_ENABLED=false \
       -e FLOCI_DNS_CONTAINER_FALLBACK_ENABLED=false \
       "$IMG_FLOCI" || return 1

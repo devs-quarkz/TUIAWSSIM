@@ -174,25 +174,26 @@ DOCKER_MAC=desktop ./floci-tui.sh   # fuerza Docker Desktop
 - **Docker Desktop**: la app oficial, `brew install --cask docker`. Hay que
   abrirla una vez.
 
-### Qué funciona en macOS con Colima (probado)
+### Qué funciona en macOS (probado)
+
+**Docker Desktop: la práctica completa** ✓, incluido el SSH, en macOS arm64:
 
 | | |
 |---|---|
-| Docker, Floci 2.3.0 | ✓ |
-| Crear instancias EC2 | ✓ |
-| **PostgreSQL + `psql`** | ✓ (probado: 16.3 arm64) |
-| **SSH a la instancia** | ✗ **falla** (autenticación de clave dentro de la VM) |
+| Docker Desktop 4.96 / motor 29.9.1 | ✓ |
+| Rosetta 2 para contenedores x86_64 | ✓ (el sshd de la imagen es x86_64) |
+| Floci 2.3.0 | ✓ |
+| Instancias EC2 | ✓ |
+| **SSH a la instancia** | ✓ (`PRETTY_NAME="Amazon Linux 2023"`, usuario `root`, en ~21 s) |
+| **PostgreSQL + `psql`** | ✓ (16.3 arm64, tabla con datos) |
 
-El SSH es la única parte que no funciona en macOS: el sshd de la instancia
-rechaza la clave incluso con el PAM ya corregido y la clave correcta dentro de
-`authorized_keys`. En Linux (Mint y Ubuntu) funciona sin problema.
+**Con Colima NO funciona el SSH** (el resto sí): el sshd de la instancia rechaza
+la clave dentro de la VM de Lima. Si usas macOS, elige **Docker Desktop**.
 
-Si estás en macOS, puedes hacer toda la práctica **menos** el bloque 5; para
-"entrar" en la instancia usa:
-
-```bash
-docker exec -it $(docker ps --format '{{.Names}}' | grep floci-aws-ec2 | head -1) bash
-```
+En el Mac hay que tener en cuenta dos cosas que el TUI ya hace solo:
+- los binarios de Docker Desktop están dentro de la app
+  (`/Applications/Docker.app/Contents/Resources/bin`);
+- el socket está en `~/.docker/run/docker.sock`, **no** en `/var/run/docker.sock`.
 
 Para tener los recuadros del menú (opcional):
 
