@@ -246,6 +246,23 @@ Floci: probado con la 2.2.0 y la 2.3.0.
 
 ---
 
+### Lo que NO funciona: Podman
+
+Podman expone una API compatible con Docker, pero **Floci no funciona con Podman**.
+Probado en Ubuntu 24.04 con Podman 4.9.3, tanto rootless como rootful y con
+`--privileged`:
+
+```
+java.net.BindException: Permission denied
+WARN  Ec2ContainerManager - No Docker daemon is reachable from Floci
+EC2 instances are emulated as metadata only: ... have no backing container,
+so SSH, UserData and SSM command execution stay unavailable
+```
+
+Las instancias aparecen como `running` pero con `PublicIpAddress: None`, no se
+crea ningún contenedor y el SSH y la base de datos no funcionan. El TUI avisa si
+detecta que tu `docker` es en realidad Podman.
+
 ## Sobre Floci
 
 Floci no se instala: **se ejecuta** como contenedor. La API escucha en el puerto

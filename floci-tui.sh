@@ -821,6 +821,11 @@ comprobar_equipo() {
 
   if hay_comando docker; then
     ok "Docker: $(docker --version 2>/dev/null | head -1)"
+    if docker info 2>/dev/null | grep -qi podman; then
+      aviso "Ojo: ese 'docker' es en realidad PODMAN."
+      aviso "Floci no funciona con Podman: las instancias se crean sin contenedor y el SSH no funciona."
+      info "Instala el Docker de verdad (docker.io o Docker Desktop)."
+    fi
   else
     aviso "Docker no está instalado (lo hará el paso de instalación)"
   fi
