@@ -651,14 +651,26 @@ crear_instancia() {
   titulo "Crear la instancia EC2"
   mkdir -p "$DIR_CLASE" || return 1
 
-  if [ -s "$CLAVE" ]; then
-    ok "La llave ya existe: $CLAVE"
-    DOCKER exec "$NOMBRE_FLOCI" sh -c "true" >/dev/null 2>&1 || true
+  # La llave tiene que existir EN FLOCI y tener su .pem local. Si Floci se
+  # recreó (contenedor nuevo), las llaves de antes ya no existen.
+  if aws ec2 describe-key-pairs --key-names "$NOMBRE_EC2" >/dev/null 2>&1 && [ -s "$CLAVE" ]; then
+    ok "La llave ya existe en Floci y el .pem está en su sitio"
   else
+    info "Creando el par de llaves (no estaba en Floci o faltaba el .pem)…"
+    chmod u+w "$CLAVE" 2>/dev/null || true
+    rm -f "$CLAVE"
+    aws ec2 delete-key-pair --key-name "$NOMBRE_EC2" >/dev/null 2>&1 || true
     aws ec2 create-key-pair --key-name "$NOMBRE_EC2" --query KeyMaterial --output text >"$CLAVE" 2>>"$LOG"
     if [ -s "$CLAVE" ]; then
       chmod 400 "$CLAVE"
       ok "Llave creada ($(wc -c <"$CLAVE" | tr -d ' ') bytes) y con permisos 400"
+      local viejas
+      viejas=$(aws ec2 describe-instances --query "Reservations[].Instances[].InstanceId" --output text 2>/dev/null)
+      if [ -n "$viejas" ] && [ "$viejas" != "None" ]; then
+        info "Terminando las instancias antiguas (tenían otra llave)…"
+        aws ec2 terminate-instances --instance-ids $viejas >/dev/null 2>&1 || true
+        sleep 3
+      fi
     else
       fallo "No se pudo crear la llave"
       return 1
