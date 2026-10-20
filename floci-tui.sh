@@ -706,6 +706,9 @@ comprobar_equipo() {
   [ -n DOCKER ] && ok "Docker usable como: $DOCKER"
   echo
   detectar_docker_cmd >/dev/null 2>&1 || true
+  if [ "$DOCKER_MODO" = "sudo" ]; then
+    aviso "El grupo docker no está activo: el script usará 'sudo docker'"
+  fi
 }
 
 # ─────────────────────────────────────────────────────────────
