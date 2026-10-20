@@ -2,10 +2,10 @@
 #
 # floci-practica.sh — Instalador y guía interactiva de la práctica de Floci
 #
-#   ./floci-practica.sh            → TUI con menú y guía paso a paso
-#   ./floci-practica.sh --auto     → hace toda la práctica sin preguntar
-#   ./floci-practica.sh --auto --limpiar → además limpia al terminar
-#   ./floci-practica.sh --ayuda    → muestra esta ayuda
+#   ./floci-tui.sh            → TUI con menú y guía paso a paso
+#   ./floci-tui.sh --auto     → hace toda la práctica sin preguntar
+#   ./floci-tui.sh --auto --limpiar → además limpia al terminar
+#   ./floci-tui.sh --ayuda    → muestra esta ayuda
 #
 # Probado en Linux Mint 22.3 y Ubuntu 24.04.
 # Uso previsto: una práctica de clase. No hace nada fuera de Docker,
@@ -640,15 +640,16 @@ limpiar_todo() {
 # ─────────────────────────────────────────────────────────────
 comprobar_equipo() {
   titulo "Comprobando el equipo"
-  printf '  Sistema:   %s\n' "$(distro)"
+  printf '  Sistema:   %s\n' "${OS_ETIQUETA:-$(distro)}"
   printf '  Arquitectura: %s\n' "$(uname -m)"
   printf '  Kernel:    %s\n' "$(uname -r)"
   printf '  Disco libre: %s\n' "$(df -h "$HOME" | awk 'NR==2{print $4}')"
   echo
 
-  case "$(distro)" in
-    *Mint*|*Ubuntu*) ok "Distribución compatible" ;;
-    *) aviso "No es Mint/Ubuntu: puede funcionar, pero no está probado" ;;
+  case "$OS_FAMILIA" in
+    debian) ok "Linux compatible (Mint/Ubuntu/Debian)" ;;
+    macos)  ok "macOS compatible (necesita Docker Desktop y Homebrew)" ;;
+    *)      aviso "Sistema no probado: solo Mint, Ubuntu y macOS" ;;
   esac
 
   if tiene_internet; then
@@ -823,13 +824,13 @@ menu_principal() {
 # ─────────────────────────────────────────────────────────────
 mostrar_ayuda() {
   cat <<EOF
-floci-practica.sh — instalador y guía de la práctica de Floci
+floci-tui.sh — instalador y guía de la práctica de Floci
 
-  ./floci-practica.sh                    Menú interactivo (TUI)
-  ./floci-practica.sh --auto             Hace toda la práctica sin preguntar
-  ./floci-practica.sh --auto --limpiar   …y limpia al terminar
-  ./floci-practica.sh --comprobar        Solo diagnostica, sin tocar nada
-  ./floci-practica.sh --ayuda            Esto
+  ./floci-tui.sh                    Menú interactivo (TUI)
+  ./floci-tui.sh --auto             Hace toda la práctica sin preguntar
+  ./floci-tui.sh --auto --limpiar   …y limpia al terminar
+  ./floci-tui.sh --comprobar        Solo diagnostica, sin tocar nada
+  ./floci-tui.sh --ayuda            Esto
 
 Hace, en orden:
   0-1  Instala Docker, la AWS CLI v2 y psql si faltan
