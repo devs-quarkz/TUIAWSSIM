@@ -703,7 +703,9 @@ comprobar_equipo() {
     ok "Rango 7001-7099 libre"
   fi
 
-  [ -n DOCKER ] && ok "Docker usable como: $DOCKER"
+  if hay_comando docker; then
+    ok "Docker usable: ${DOCKER_MODO:+con sudo}${DOCKER_MODO:-directo}"
+  fi
   echo
   detectar_docker_cmd >/dev/null 2>&1 || true
   if [ "$DOCKER_MODO" = "sudo" ]; then
