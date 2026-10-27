@@ -58,6 +58,26 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     warn "Faltan imágenes:$FALTAN — las descargo"
     for IMG in $FALTAN; do docker pull "$IMG" >/dev/null 2>&1; done
   fi
+  # La imagen de EC2 del paquete TIENE que llevar sshd y el arreglo de PAM:
+  # si no, el alumno sin internet no puede entrar por SSH.
+  msg "Comprobando la imagen de EC2"
+  if docker run --rm public.ecr.aws/amazonlinux/amazonlinux:2023 \
+       sh -c 'grep -q pam_permit /etc/pam.d/sshd && test -x /usr/sbin/sshd' 2>/dev/null; then
+    ok "La imagen de EC2 ya lleva sshd y el arreglo de PAM"
+  else
+    warn "La imagen de EC2 no está preparada: la construyo (tarda ~1 minuto)"
+    TMPD="$(mktemp -d)"
+    printf '%s\n' \
+      'FROM public.ecr.aws/amazonlinux/amazonlinux:2023' \
+      'RUN dnf install -y openssh-server openssh-clients && dnf clean all' \
+      'RUN sed -i /account/d /etc/pam.d/sshd' \
+      'RUN echo account required pam_permit.so >> /etc/pam.d/sshd' > "$TMPD/Dockerfile"
+    docker build -t public.ecr.aws/amazonlinux/amazonlinux:2023 -f "$TMPD/Dockerfile" "$TMPD" >/dev/null 2>&1 \
+      && ok "Imagen de EC2 preparada (sshd + PAM)" \
+      || warn "No pude construirla; el SSH podría fallar en los alumnos"
+    rm -rf "$TMPD"
+  fi
+
   docker save floci/floci:latest postgres:16.3-alpine alpine:3.21 \
       public.ecr.aws/amazonlinux/amazonlinux:2023 2>/dev/null | gzip > "$OUT/imagenes-floci.tar.gz"
   [ -s "$OUT/imagenes-floci.tar.gz" ] && ok "Imágenes: $(du -h "$OUT/imagenes-floci.tar.gz" | cut -f1)" \

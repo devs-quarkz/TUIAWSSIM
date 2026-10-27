@@ -76,6 +76,11 @@ bajan los alumnos.
 
 ### 2. Servir la clase
 
+> **Si los alumnos no cargan la página**, es casi siempre el cortafuegos del
+> profesor: `sudo ufw allow 8000/tcp` (Ubuntu/Mint). En macOS, permitir `python3`
+> en Ajustes → Red → Cortafuegos. El SSH puede funcionar y el 8000 no, así que
+> pruébalo desde otro equipo antes de la clase.
+
 ```bash
 ./servir.sh
 ```
