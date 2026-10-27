@@ -233,38 +233,6 @@ Sin `whiptail` el menú funciona igual, pero en modo texto.
 
 ---
 
-## Clase SIN internet (el profesor reparte todo)
-
-El TUI no necesita internet si el profesor le pasa el paquete. En la máquina del
-profesor, **una vez y con red**:
-
-```bash
-./preparar-offline.sh
-```
-
-Deja `offline/` con los `.deb` de Docker y psql (con sus dependencias), el
-instalador de la AWS CLI y las 4 imágenes, más `offline.tar.gz` (~415 MB).
-
-Luego levanta el servidor de clase:
-
-```bash
-./servir.sh
-```
-
-Sirve una página con la dirección y el comando exacto para los alumnos.
-Ellos solo necesitan estar en la misma red:
-
-```bash
-curl -fsSL http://IP-DEL-PROFESOR:8000/instalar.sh | bash -s -- --servidor http://IP-DEL-PROFESOR:8000
-```
-
-Así el TUI instala Docker, la AWS CLI y psql **desde los .deb del paquete** y las
-imágenes con `docker load`, sin tocar internet. También se puede forzar:
-
-```bash
-./floci-tui.sh --sin-internet
-```
-
 ## Estructura
 
 ```
