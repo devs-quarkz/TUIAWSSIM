@@ -403,6 +403,12 @@ instalar_awscli_offline() {
   local b
   b=$(buscar_bundle) || return 1
   [ -f "$b/awscliv2.zip" ] || return 1
+  if ! hay_comando unzip; then
+    info "Falta unzip: lo instalo del paquete del profesor"
+    instalar_deb_offline || return 1
+    hash -r
+    hay_comando unzip || return 1
+  fi
   info "Instalando la AWS CLI desde el paquete del profesor…"
   ( cd "$HOME" && unzip -q -o "$b/awscliv2.zip" ) || return 1
   pedir_sudo || return 1
@@ -622,7 +628,15 @@ preparar_imagenes() {
       continue
     fi
     if [ "$SIN_INTERNET" = 1 ]; then
-      fallo "Falta $img y no hay internet. Descárgala en casa (bloque 2 del guion)."
+      local bb
+      if bb=$(buscar_bundle) && [ -f "$bb/imagenes-floci.tar.gz" ]; then
+        info "Falta $img: la cargo del paquete del profesor"
+        if cargar_imagenes "$bb/imagenes-floci.tar.gz" && tiene_imagen "$img"; then
+          ok "Ya está: $img"
+          continue
+        fi
+      fi
+      fallo "Falta $img y no hay internet ni paquete con las imágenes."
       return 1
     fi
     ejecutar "Descargando $img" DOCKER pull "$img" || return 1
@@ -640,7 +654,11 @@ imagen_ec2_lista() {
 }
 
 construir_imagen_ec2() {
-  [ "$SIN_INTERNET" = 1 ] && { fallo "Hace falta internet para construir la imagen de EC2"; return 1; }
+  if [ "$SIN_INTERNET" = 1 ]; then
+    fallo "La imagen de EC2 del paquete no está preparada (le falta sshd o el PAM)"
+    info "Revisa que el profesor haya ejecutado ./preparar-offline.sh en su equipo."
+    return 1
+  fi
   info "Construyendo la imagen de EC2 con servidor SSH (tarda ~1 minuto)..."
   local df
   df=$(mktemp)

@@ -76,6 +76,12 @@ bajan los alumnos.
 
 ### 2. Servir la clase
 
+> **Si Floci no responde** en el equipo del alumno (el contenedor está `healthy`
+> pero `curl localhost:4566` falla), mira el cortafuegos: algunas configuraciones
+> de `ufw`/`iptables` bloquean el loopback o la red de Docker. En una Ubuntu con
+> `ufw` normal no pasa; si lo tocaste, `sudo ufw allow in on lo` y
+> `sudo ufw allow out on lo`.
+
 > **Si los alumnos no cargan la página**, es casi siempre el cortafuegos del
 > profesor: `sudo ufw allow 8000/tcp` (Ubuntu/Mint). En macOS, permitir `python3`
 > en Ajustes → Red → Cortafuegos. El SSH puede funcionar y el 8000 no, así que

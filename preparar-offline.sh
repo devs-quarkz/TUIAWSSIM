@@ -91,7 +91,7 @@ msg "Empaquetando el proyecto"
 TMP="$(mktemp -d)"
 mkdir -p "$TMP/TUIAWSSIM"
 cp -R "$DIR"/. "$TMP/TUIAWSSIM"/ 2>/dev/null
-rm -rf "$TMP/TUIAWSSIM/offline" "$TMP/TUIAWSSIM/TUIAWSSIM.tar.gz" 2>/dev/null
+rm -rf "$TMP/TUIAWSSIM/offline" "$TMP/TUIAWSSIM/offline.tar.gz" "$TMP/TUIAWSSIM/TUIAWSSIM.tar.gz" "$TMP/TUIAWSSIM/index.html" 2>/dev/null
 tar -czf "$OUT/TUIAWSSIM.tar.gz" -C "$TMP" TUIAWSSIM
 rm -rf "$TMP"
 ok "Proyecto: $(du -h "$OUT/TUIAWSSIM.tar.gz" | cut -f1)"
