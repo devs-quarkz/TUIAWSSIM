@@ -51,6 +51,8 @@ AUTO=0
 LIMPIAR=0
 SOLO_COMPROBAR=0
 DESINSTALAR_DOCKER=0
+FORZAR_SIN_INTERNET=0
+BUNDLE_ACTUAL=""
 EXPORTAR=""
 CARGAR=""
 
@@ -1216,11 +1218,25 @@ comprobar_equipo() {
     *)      aviso "Sistema no probado: solo Mint, Ubuntu y macOS" ;;
   esac
 
-  if tiene_internet; then
+  if [ "${FORZAR_SIN_INTERNET:-0}" = 1 ]; then
+    SIN_INTERNET=1
+    aviso "Modo sin internet forzado: instalaré solo del paquete offline"
+    if BUNDLE_ACTUAL=$(buscar_bundle); then
+      ok "Paquete offline encontrado en $BUNDLE_ACTUAL"
+    else
+      aviso "No encuentro el paquete offline (offline/ junto al script)"
+    fi
+  elif tiene_internet; then
     ok "Hay internet (se puede descargar todo)"
   else
     SIN_INTERNET=1
-    aviso "No hay internet: solo se puede continuar si todo está ya descargado"
+    aviso "No hay internet: usaré el paquete del profesor si está descargado"
+    if BUNDLE_ACTUAL=$(buscar_bundle); then
+      ok "Paquete offline encontrado en $BUNDLE_ACTUAL"
+    else
+      fallo "No hay internet y tampoco paquete offline"
+      info "Pídele al profesor el comando de instalación de su servidor."
+    fi
   fi
 
   if docker_ok; then
@@ -1421,6 +1437,7 @@ floci-tui.sh — instalador y guía de la práctica de Floci
   ./floci-tui.sh --exportar [f]     Guarda las 4 imágenes en un fichero (profesor)
   ./floci-tui.sh --cargar <f>       Carga ese fichero de imágenes (alumno)
   ./floci-tui.sh --desinstalar-docker   Quita Docker sin preguntar (cuidado)
+  ./floci-tui.sh --sin-internet     No usa la red: instala del paquete offline
 
 En macOS:
   DOCKER_MAC=colima   ./floci-tui.sh    instala Colima (ligero, recomendado)
@@ -1449,6 +1466,7 @@ main() {
       --exportar)  EXPORTAR="${2:-$PWD/imagenes-floci.tar.gz}"; shift ;;
       --cargar)    CARGAR="$2"; shift ;;
       --desinstalar-docker) DESINSTALAR_DOCKER=1 ;;
+      --sin-internet) FORZAR_SIN_INTERNET=1 ;;
       --limpiar)  LIMPIAR=1 ;;
       --ayuda|-h|--help) mostrar_ayuda; exit 0 ;;
       *) printf 'Opción desconocida: %s (usa --ayuda)\n' "$1"; exit 2 ;;

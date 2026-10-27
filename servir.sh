@@ -35,9 +35,14 @@ command -v python3 >/dev/null 2>&1 || {
 printf '  Preparando el paquete…\n'
 TMP="$(mktemp -d)"
 mkdir -p "$TMP/TUIAWSSIM"
-cp -R "$DIR"/. "$TMP/TUIAWSSIM"/ 2>/dev/null
+for f in "$DIR"/*; do
+  case "$(basename "$f")" in
+    offline|index.html|TUIAWSSIM.tar.gz|offline.tar.gz) continue ;;
+  esac
+  cp -R "$f" "$TMP/TUIAWSSIM"/ 2>/dev/null
+done
 rm -f "$TMP/TUIAWSSIM/TUIAWSSIM.tar.gz"
-tar -czf "$DIR/TUIAWSSIM.tar.gz" -C "$TMP" TUIAWSSIM
+tar -czf "$DIR/TUIAWSSIM.tar.gz" --exclude=offline --exclude=index.html --exclude=TUIAWSSIM.tar.gz --exclude=offline.tar.gz -C "$TMP" TUIAWSSIM
 rm -rf "$TMP"
 printf '  Paquete listo: %s (%s)\n\n' "$DIR/TUIAWSSIM.tar.gz" "$(du -h "$DIR/TUIAWSSIM.tar.gz" | cut -f1)"
 

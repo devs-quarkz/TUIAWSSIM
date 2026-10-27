@@ -100,7 +100,23 @@ cp -R "$ORIGEN"/. "$DESTINO"/ 2>/dev/null
 # Si el profesor tiene el paquete de imágenes, se baja también: así la
 # práctica funciona sin internet y sin descargar 1 GB de imágenes.
 if [ -n "$SERVIDOR" ]; then
-  if curl -fsI "$SERVIDOR/imagenes-floci.tar.gz" >/dev/null 2>&1; then
+  # Paquete offline completo (Docker, psql, AWS CLI e imágenes): con esto
+  # el alumno no necesita internet para nada.
+  if curl -fsI "$SERVIDOR/offline.tar.gz" >/dev/null 2>&1; then
+    printf '\n  Descargando el paquete offline del profesor (~400 MB)…\n'
+    TMPO="$(mktemp)"
+    if curl -fsSL "$SERVIDOR/offline.tar.gz" -o "$TMPO"; then
+      mkdir -p "$DESTINO/offline"
+      if tar -xzf "$TMPO" -C "$DESTINO/offline" --strip-components=1 2>/dev/null; then
+        printf '\033[1;32m  ✓ Paquete offline listo (instala sin internet)\033[0m\n'
+      else
+        printf '\033[1;33m  ! El paquete offline venía dañado\033[0m\n'
+      fi
+    else
+      printf '\033[1;33m  ! No pude bajar el paquete offline\033[0m\n'
+    fi
+    rm -f "$TMPO"
+  elif curl -fsI "$SERVIDOR/imagenes-floci.tar.gz" >/dev/null 2>&1; then
     printf '\n  Descargando también las imágenes de Docker (~250 MB)…\n'
     if curl -fsSL "$SERVIDOR/imagenes-floci.tar.gz" -o "$DESTINO/imagenes-floci.tar.gz"; then
       printf '\033[1;32m  ✓ Imágenes descargadas\033[0m\n'

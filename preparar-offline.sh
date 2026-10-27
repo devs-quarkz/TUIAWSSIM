@@ -22,11 +22,15 @@ mkdir -p "$OUT/paquetes" "$OUT"
 # ── 1. Paquetes .deb (Docker, psql, unzip) con sus dependencias ─────
 msg "Descargando los paquetes de Docker, psql y unzip"
 if command -v apt-get >/dev/null 2>&1; then
-  SUDO=""
-  [ "$(id -u)" -ne 0 ] && SUDO="sudo"
-  $SUDO apt-get clean
-  $SUDO apt-get update -qq || warn "apt update falló; sigo con la caché que haya"
-  $SUDO apt-get install --download-only -y --reinstall \
+  # sudo con contraseña por variable (para lanzarlo por SSH sin terminal)
+  SUDO() {
+    if [ "$(id -u)" -eq 0 ]; then "$@"
+    elif [ -n "${SUDO_PASS:-}" ]; then printf '%s\n' "$SUDO_PASS" | sudo -S "$@" 2>/dev/null
+    else sudo "$@"; fi
+  }
+  SUDO apt-get clean
+  SUDO apt-get update -qq || warn "apt update falló; sigo con la caché que haya"
+  SUDO apt-get install --download-only -y --reinstall \
       docker.io containerd docker-compose-v2 runc \
       postgresql-client postgresql-client-common unzip 2>&1 | tail -3
   cp -f "$CACHE"/*.deb "$OUT/paquetes/" 2>/dev/null
@@ -84,6 +88,11 @@ ok "Proyecto: $(du -h "$OUT/TUIAWSSIM.tar.gz" | cut -f1)"
   echo "Para repartirlo:  ./servir.sh"
   echo "  (levanta una página con el instalador y los enlaces)"
 } > "$OUT/MANIFIESTO.txt"
+
+# ── 6. Un único fichero para que el alumno lo baje de una vez ─────
+msg "Empaquetando todo en un solo fichero (offline.tar.gz)"
+tar -czf "$DIR/offline.tar.gz" -C "$DIR" offline
+ok "offline.tar.gz: $(du -h "$DIR/offline.tar.gz" | cut -f1)"
 
 echo
 msg "Paquete listo: $OUT"
