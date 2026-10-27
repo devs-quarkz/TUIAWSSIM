@@ -56,10 +56,27 @@ El profesor levanta un servidor en su equipo y los alumnos se descargan todo de
 él. No hace falta conexión a internet: solo estar en la misma red (o en la misma
 red Tailscale).
 
-### 1. En el equipo del profesor
+### 1. En el equipo del profesor (una vez, este sí con red)
 
 ```bash
 cd ~/TUIAWSSIM
+./preparar-offline.sh
+```
+
+Descarga y empaqueta **todo lo que hace falta para instalar sin red**:
+
+- los `.deb` de Docker, containerd, unzip y el cliente de PostgreSQL, **con sus
+  dependencias** (unos 88 MB),
+- el instalador de la AWS CLI v2 (~72 MB),
+- las 4 imágenes de Docker (~262 MB comprimidas),
+- el propio proyecto,
+
+y lo junta en `offline/` más un único `offline.tar.gz` (~415 MB) que es lo que se
+bajan los alumnos.
+
+### 2. Servir la clase
+
+```bash
 ./servir.sh
 ```
 
@@ -71,28 +88,38 @@ Te muestra algo así:
   Instalador:    http://192.168.1.50:8000/instalar.sh
 ```
 
-### 2. En el equipo de cada alumno
+### 3. En el equipo de cada alumno
 
 ```bash
 curl -fsSL http://192.168.1.50:8000/instalar.sh | bash -s -- --servidor http://192.168.1.50:8000
 ```
 
-### 3. Que no necesiten internet **ni para las imágenes**
+### 4. Qué pasa en el equipo del alumno
 
-En el equipo del profesor, con las imágenes ya descargadas:
+El instalador se baja el proyecto **y** `offline.tar.gz` (si el profesor lo
+sirve) y lo deja en `offline/`. Luego el TUI, cuando le falta algo:
+
+| Le falta | Lo instala con |
+|---|---|
+| Docker | `dpkg -i` de los `.deb` del paquete |
+| AWS CLI | `unzip` del instalador del paquete |
+| psql | `dpkg -i` de los `.deb` del paquete |
+| Imágenes | `docker load` de `offline/imagenes-floci.tar.gz` |
+| Imagen de EC2 | viaja ya construida (con el arreglo de PAM) |
+
+Sin internet no hay `apt update`, ni `docker pull`, ni `docker build`: todo sale
+del paquete. Se puede forzar el modo sin red para probarlo:
 
 ```bash
-cd ~/TUIAWSSIM
-./floci-tui.sh --exportar
+./floci-tui.sh --sin-internet
 ```
 
-Crea `imagenes-floci.tar.gz` (~250 MB) **en esa misma carpeta**. A partir de ahí:
+Si prefieres pasar solo las imágenes a mano:
 
-- `./servir.sh` lo sirve junto al resto,
-- el instalador de los alumnos **lo detecta y se lo baja solo**,
-- y el TUI lo carga automáticamente si le falta alguna imagen.
-
-El alumno no tiene que hacer nada distinto: el mismo comando de siempre.
+```bash
+./floci-tui.sh --exportar /ruta/paquete.tar.gz    # profesor
+./floci-tui.sh --cargar   /ruta/paquete.tar.gz    # alumnos
+```
 
 Si prefieres hacerlo a mano:
 
