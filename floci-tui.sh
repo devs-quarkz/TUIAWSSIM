@@ -371,6 +371,44 @@ instalar_docker_macos() {
   esac
 }
 
+# ── Instalación SIN INTERNET, desde el paquete del profesor ────────
+buscar_bundle() {
+  local d
+  for d in "$DIR_SCRIPT/offline" "$HOME/TUIAWSSIM/offline" "$HOME/offline" "/opt/tuiawssim/offline"; do
+    [ -d "$d" ] && { printf '%s' "$d"; return 0; }
+  done
+  return 1
+}
+
+instalar_deb_offline() {
+  local b debs
+  b=$(buscar_bundle) || return 1
+  debs="$b/paquetes"
+  ls "$debs"/*.deb >/dev/null 2>&1 || return 1
+  info "Instalando desde el paquete del profesor ($(ls "$debs"/*.deb | wc -l) paquetes)…"
+  pedir_sudo || return 1
+  SUDO dpkg -i "$debs"/*.deb >"$HOME/.tuiawssim-deb.log" 2>&1
+  SUDO apt-get -f install -y --no-download >>"$HOME/.tuiawssim-deb.log" 2>&1 || true
+  if dpkg -l docker.io 2>/dev/null | grep -q '^ii' || dpkg -l postgresql-client-common 2>/dev/null | grep -q '^ii'; then
+    ok "Paquetes instalados desde el paquete offline"
+    return 0
+  fi
+  fallo "No pude instalarlos. Mira $HOME/.tuiawssim-deb.log"
+  return 1
+}
+
+instalar_awscli_offline() {
+  local b
+  b=$(buscar_bundle) || return 1
+  [ -f "$b/awscliv2.zip" ] || return 1
+  info "Instalando la AWS CLI desde el paquete del profesor…"
+  ( cd "$HOME" && unzip -q -o "$b/awscliv2.zip" ) || return 1
+  pedir_sudo || return 1
+  SUDO "$HOME/aws/install" --update >/dev/null 2>&1 || return 1
+  hash -r
+  aws_ok
+}
+
 instalar_docker() {
   titulo "Docker"
 
@@ -400,7 +438,15 @@ instalar_docker() {
     fi
   else
     if [ "$SIN_INTERNET" = 1 ]; then
+      if [ "$OS_FAMILIA" = "debian" ] && instalar_deb_offline; then
+        SUDO systemctl start docker 2>/dev/null || true
+        sleep 3
+        detectar_docker_cmd || { fallo "Docker se instaló pero el demonio no responde"; return 1; }
+        ok "Docker listo (instalado sin internet)"
+        return 0
+      fi
       fallo "No hay internet y Docker no está instalado"
+      info "Pídele al profesor el paquete offline, o descárgalo donde tengas red."
       return 1
     fi
     case "$OS_FAMILIA" in
@@ -444,7 +490,12 @@ instalar_aws_cli() {
     return 0
   fi
   if [ "$SIN_INTERNET" = 1 ]; then
+    if [ "$OS_FAMILIA" = "debian" ] && instalar_awscli_offline; then
+      ok "AWS CLI instalada sin internet: $(aws --version 2>&1 | head -1)"
+      return 0
+    fi
     fallo "No hay internet y la AWS CLI no está instalada"
+    info "Pídele al profesor el paquete offline."
     return 1
   fi
   local arq; arq="$(architecture)"
@@ -480,7 +531,12 @@ instalar_psql() {
     return 0
   fi
   if [ "$SIN_INTERNET" = 1 ]; then
+    if [ "$OS_FAMILIA" = "debian" ] && instalar_deb_offline && psql_ok; then
+      ok "psql instalado sin internet: $(psql --version)"
+      return 0
+    fi
     fallo "No hay internet y psql no está instalado"
+    info "Pídele al profesor el paquete offline."
     return 1
   fi
   case "$OS_FAMILIA" in
@@ -546,7 +602,9 @@ preparar_imagenes() {
     tiene_imagen "$img" || falta=1
   done
   if [ "$falta" = 1 ]; then
-    for cand in "$DIR_SCRIPT/imagenes-floci.tar.gz" "$HOME/TUIAWSSIM/imagenes-floci.tar.gz" "$HOME/imagenes-floci.tar.gz"; do
+    for cand in "$DIR_SCRIPT/imagenes-floci.tar.gz" "$DIR_SCRIPT/offline/imagenes-floci.tar.gz" \
+                "$HOME/TUIAWSSIM/imagenes-floci.tar.gz" "$HOME/TUIAWSSIM/offline/imagenes-floci.tar.gz" \
+                "$HOME/imagenes-floci.tar.gz"; do
       [ -f "$cand" ] && { paquete="$cand"; break; }
     done
     if [ -n "$paquete" ]; then

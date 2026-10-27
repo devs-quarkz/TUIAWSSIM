@@ -68,5 +68,23 @@ cat <<EOF
 
 EOF
 
+# ── Página de descarga para los alumnos ────────────────────────────
+{
+  echo '<!doctype html><meta charset="utf-8"><title>TUIAWSSIM — práctica de AWS</title>'
+  echo '<body style="font-family:system-ui;background:#0f1117;color:#e6e6e6;max-width:820px;margin:40px auto;padding:0 20px;line-height:1.5">'
+  echo '<h1 style="color:#4cc2ff">TUIAWSSIM</h1>'
+  echo '<p>Práctica de AWS en tu portátil. <b>Necesitas estar en la misma red que este equipo</b> (no hace falta internet).</p>'
+  echo '<h2>Instalar y empezar</h2>'
+  echo "<pre style=\"background:#1a1d27;padding:14px;border-radius:8px;overflow:auto\">curl -fsSL http://$IP:$PUERTO/instalar.sh | bash -s -- --servidor http://$IP:$PUERTO</pre>"
+  echo '<p>Si prefieres hacerlo a mano, descarga el proyecto y ejecútalo:</p>'
+  echo '<ul>'
+  for f in TUIAWSSIM.tar.gz offline/TUIAWSSIM.tar.gz offline/MANIFIESTO.txt; do
+    [ -f "$DIR/$f" ] && echo "<li><a style=\"color:#4cc2ff\" href=\"/$f\">$f</a> ($(du -h "$DIR/$f" | cut -f1))</li>"
+  done
+  [ -d "$DIR/offline" ] && echo "<li><b>offline/</b> — todo lo necesario para instalar sin internet</li>"
+  echo '</ul>'
+  echo '<p style="color:#888">Servido por '"$(hostname)"' · puerto '"$PUERTO"'</p>'
+} > "$DIR/index.html"
+
 cd "$DIR" || exit 1
 exec python3 -m http.server "$PUERTO" --bind 0.0.0.0
