@@ -144,6 +144,83 @@ los alumnos **ni descargan 1 GB ni ejecutan el `docker build`**.
 
 ---
 
+## La práctica del alumno
+
+El TUI tiene **dos modos**:
+
+| Opción | Para qué |
+|---|---|
+| **1 — ALUMNO** | El TUI guía bloque a bloque, pero **los comandos los escribe el alumno** en otra terminal. Aquí se aprende. |
+| **2 — PROFESOR** | Demo automática: instala, arranca y hace toda la práctica sola. Para enseñar en clase o comprobar un equipo. |
+
+### El enunciado
+
+`practica/PRACTICA.md` — 10 bloques con objetivo, comandos, salida esperada,
+un comando de comprobación y **20 preguntas** para el informe:
+
+| Bloque | Tema |
+|---:|---|
+| 0 | Comprueba tu equipo (Docker) |
+| 1 | Arranca Floci y configura AWS |
+| 2 | Tu llave SSH |
+| 3 | Crea la instancia EC2 |
+| 4 | Entra por SSH |
+| 5 | Crea la base de datos (RDS) |
+| 6 | Conéctate con `psql` |
+| 7 | Tu primera tabla (CREATE/INSERT/SELECT/UPDATE/DELETE) |
+| 8 | Autoevalúa y entrega |
+| 9 | Limpia tu equipo |
+
+### La calificación automática
+
+`practica/verificar.sh` mira el estado real del equipo (no apuntes) y puntúa
+sobre 100:
+
+| Criterio | Puntos |
+|---|---:|
+| Entorno (Docker responde) | 10 |
+| Floci sano | 10 |
+| Credenciales (`000000000000`) | 5 |
+| Imagen de EC2 preparada | 5 |
+| Llave `.pem` con permisos 400 | 5 |
+| Instancia en marcha | 10 |
+| **Entrar por SSH** | 15 |
+| Base de datos disponible | 10 |
+| Conexión con `psql` | 10 |
+| **Tabla `alumnos` con 3 filas** | 20 |
+
+```bash
+./practica/verificar.sh              # tabla con la nota, sin tocar nada
+./practica/verificar.sh --bloque 4   # solo el bloque 4 (SSH)
+./practica/verificar.sh --guardar    # además guarda la entrega
+```
+
+Funciona con **bash 3.2** (el de macOS) y en Linux.
+
+### La entrega
+
+`--guardar` (o la opción 12 del menú) crea
+`practica/entregas/<usuario>-<fecha>/` con:
+
+- `entrega.json` — nota y detalle de cada criterio
+- `salida.txt` — la salida del verificador
+- `informe.md` — plantilla con las 20 preguntas
+
+El profesor las lista con la **opción 13** del menú:
+
+```
+  ALUMNO-FECHA               NOTA  CONTENIDO
+  ──────────────────────────────────────────────────────
+  alejandro-20261028-2101    95    entrega.json informe.md salida.txt
+```
+
+Desde la línea de comandos:
+
+```bash
+./floci-tui.sh --autoevaluar    # puntúa y sale
+./floci-tui.sh --entregar       # puntúa y guarda la entrega
+```
+
 ## Comandos
 
 | Comando | Qué hace |

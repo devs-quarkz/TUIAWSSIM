@@ -52,6 +52,8 @@ LIMPIAR=0
 SOLO_COMPROBAR=0
 DESINSTALAR_DOCKER=0
 FORZAR_SIN_INTERNET=0
+SOLO_AUTOEVALUAR=0
+SOLO_ENTREGAR=0
 BUNDLE_ACTUAL=""
 EXPORTAR=""
 CARGAR=""
@@ -1358,7 +1360,7 @@ tui_msg() { # tui_msg "texto" [alto] [ancho]
 tui_menu() { # tui_menu "título" "texto" tag desc tag desc …
   local tit="$1" texto="$2"; shift 2
   if [ "$TIENE_WHIPTAIL" = 1 ]; then
-    whiptail --title "Floci — práctica de AWS" --menu "$texto" 24 78 12 "$@" 3>&1 1>&2 2>&3
+    whiptail --title "Floci — práctica de AWS" --menu "$texto" 26 84 18 "$@" 3>&1 1>&2 2>&3
   else
     # OJO: esta función se llama dentro de $(...), así que el menú tiene que
     # ir a stderr o no se ve. Solo la opción elegida va a stdout.
@@ -1387,6 +1389,156 @@ ${C_CYAN}  ███████╗██╗      ██████╗  ██�
 EOF
 }
 
+# ─────────────────────────────────────────────────────────────
+#  La práctica del alumno (enunciado + autoevaluación)
+# ─────────────────────────────────────────────────────────────
+ruta_practica() {
+  local d
+  for d in "$DIR_SCRIPT/practica" "./practica" "$(pwd)/practica"; do
+    [ -x "$d/verificar.sh" ] && { printf '%s' "$d"; return 0; }
+  done
+  return 1
+}
+
+verificador() {
+  local p
+  p=$(ruta_practica) || { fallo "No encuentro practica/verificar.sh junto al TUI"; return 1; }
+  "$p/verificar.sh" "$@"
+}
+
+practica_alumno() {
+  local p b=0 T D
+  p=$(ruta_practica) || { fallo "No encuentro la práctica (practica/verificar.sh)"; return 1; }
+
+  titulo "Modo alumno: la práctica paso a paso"
+  printf '%s\n' \
+"  Esto NO es la demo: aquí los comandos los escribes TÚ." \
+"" \
+"  Abre el enunciado en otra ventana (o en el editor):" \
+"      practica/PRACTICA.md" \
+"" \
+"  Vamos bloque a bloque. En cada uno:" \
+"    1) lees lo que hay que hacer" \
+"    2) lo escribes tú, en otra terminal" \
+"    3) vuelves aquí, pulsas ENTER y lo compruebo" \
+"" \
+"  Si algo falla, te digo qué mirar y puedes repetirlo."
+  pausa
+
+  while [ "$b" -le 7 ]; do
+    case "$b" in
+      0) T="Comprueba tu equipo"
+         D="docker --version
+docker info --format '{{.ServerVersion}}'
+docker run --rm hello-world" ;;
+      1) T="Arranca Floci y configura AWS"
+         D="(el 'docker run --name floci' completo está en PRACTICA.md, bloque 1)
+curl -s http://localhost:4566/_floci/health
+aws configure set aws_access_key_id test
+aws configure set aws_secret_access_key test
+aws configure set region us-east-1
+aws configure set endpoint_url http://localhost:4566
+aws configure set cli_pager \"\"
+aws sts get-caller-identity" ;;
+      2) T="Tu llave SSH"
+         D="mkdir -p ~/awsclase
+aws ec2 create-key-pair --key-name clase --query KeyMaterial --output text > ~/awsclase/clase.pem
+chmod 400 ~/awsclase/clase.pem
+ls -l ~/awsclase/clase.pem" ;;
+      3) T="Crea la instancia EC2"
+         D="aws ec2 run-instances --image-id ami-0abcdef1234567891 --instance-type t2.micro --key-name clase
+aws ec2 describe-instances --query \"Reservations[].Instances[].{Estado:State.Name,IP:PublicIpAddress}\" --output table" ;;
+      4) T="Entra por SSH"
+         D="docker ps --filter name=floci-aws-ec2 --format '{{.Names}}  {{.Ports}}'
+ssh -p 2200 -i ~/awsclase/clase.pem root@localhost
+  (dentro: cat /etc/os-release · whoami · exit)" ;;
+      5) T="La base de datos"
+         D="aws rds create-db-instance --db-instance-identifier clase-db --engine postgres --db-instance-class db.t3.micro --master-username admin --master-user-password secreto123 --allocated-storage 20
+aws rds describe-db-instances --query \"DBInstances[].{ID:DBInstanceIdentifier,Estado:DBInstanceStatus,Puerto:Endpoint.Port}\" --output table" ;;
+      6) T="Conéctate con psql"
+         D="PGPASSWORD=secreto123 psql -h localhost -p 7001 -U admin -d postgres -c \"SELECT version();\"" ;;
+      7) T="Tu primera tabla"
+         D="PGPASSWORD=secreto123 psql -h localhost -p 7001 -U admin -d postgres
+   \\pset pager off
+   CREATE TABLE alumnos (id SERIAL PRIMARY KEY, nombre VARCHAR(50), nota NUMERIC(4,2));
+   INSERT INTO alumnos (nombre, nota) VALUES ('Ana', 8.5), ('Luis', 6.0), ('Marta', 9.25);
+   SELECT * FROM alumnos;" ;;
+    esac
+
+    clear 2>/dev/null || true
+    titulo "Bloque $b — $T"
+    printf '  Tienes que hacer, en otra terminal:\n\n'
+    printf '%s\n' "$D" | sed 's/^/    /'
+    printf '\n  Enunciado completo: practica/PRACTICA.md → bloque %s\n' "$b"
+    printf '\n  %sCuando lo tengas hecho, pulsa ENTER y lo compruebo.%s' "$C_DIM" "$C_RESET"
+    read -r _ </dev/tty || true
+    echo
+    if verificador --bloque "$b"; then
+      ok "Bloque $b superado"
+    else
+      if confirmar "¿Repetimos el bloque $b?"; then continue; fi
+      aviso "Seguimos, pero el bloque $b queda pendiente"
+    fi
+    b=$((b+1))
+  done
+
+  titulo "Bloque 8 — Autoevalúa y entrega"
+  info "Voy a puntuar la práctica completa (100 puntos)."
+  pausa
+  verificador
+  if confirmar "¿Genero la entrega en practica/entregas/?"; then
+    verificador --guardar
+    ok "Entrega guardada. El profesor la ve con la opción 13 del menú."
+  else
+    info "Puedes entregarla luego con la opción 12 del menú."
+  fi
+
+  titulo "Bloque 9 — Limpia tu equipo"
+  printf '%s\n' \
+"  Cuando ya hayas entregado, borra los recursos:" \
+"" \
+"    aws ec2 terminate-instances --instance-ids \$(aws ec2 describe-instances --query \"Reservations[].Instances[].InstanceId\" --output text)" \
+"    aws rds delete-db-instance --db-instance-identifier clase-db --skip-final-snapshot" \
+"    docker rm -f floci" \
+"" \
+"  O usa la opción 14 del menú, que te deja elegir qué quitar."
+  pausa
+  ok "Fin de la práctica"
+}
+
+autoevaluar_practica() {
+  titulo "Autoevaluar la práctica"
+  verificador
+  printf '\n'
+  info "Enunciado: practica/PRACTICA.md  ·  Entregar: opción 12 del menú"
+}
+
+entregar_practica() {
+  titulo "Entregar la práctica"
+  confirmar "¿Genero tu entrega en practica/entregas/?" || { info "Cancelado"; return 0; }
+  verificador --guardar
+}
+
+ver_entregas() {
+  titulo "Entregas recibidas (profesor)"
+  local p d n=0 nota
+  p=$(ruta_practica) || { fallo "No encuentro practica/"; return 1; }
+  if [ ! -d "$p/entregas" ] || [ -z "$(ls -A "$p/entregas" 2>/dev/null)" ]; then
+    aviso "Todavía no hay entregas en practica/entregas/"
+    return 0
+  fi
+  printf '  %-26s %-5s %s\n' "ALUMNO-FECHA" "NOTA" "CONTENIDO"
+  printf '  %s\n' "──────────────────────────────────────────────────────"
+  for d in "$p"/entregas/*/; do
+    [ -d "$d" ] || continue
+    n=$(( n + 1 ))
+    nota="?"
+    [ -f "$d/entrega.json" ] && nota=$(sed -n 's/.*"nota":\([0-9]\{1,\}\).*/\1/p' "$d/entrega.json" | head -1)
+    printf '  %-26s %-5s %s\n' "$(basename "$d")" "${nota:-?}" "$(ls "$d" 2>/dev/null | tr '\n' ' ')"
+  done
+  printf '\n  %s entrega(s) · %s\n' "$n" "$p/entregas"
+}
+
 menu_principal() {
   local opcion
   if [ ! -t 1 ]; then
@@ -1406,35 +1558,43 @@ menu_principal() {
     Docker:     $(if docker_ok; then echo "funcionando"; elif hay_comando docker; then echo "instalado pero sin responder"; else echo "sin instalar"; fi)
     Instancia:  ${IP_INSTANCIA:-ninguna}
     Puerto DB:  ${PUERTO_DB}" \
-      1 "Empezar la práctica guiada (instala y hace todo)" \
-      2 "Comprobar el equipo" \
-      3 "Instalar Docker, AWS CLI y psql" \
-      4 "Preparar las imágenes" \
-      5 "Arrancar Floci y configurar AWS" \
-      6 "Crear la instancia EC2" \
-      7 "Entrar por SSH en la instancia" \
-      8 "Crear la base de datos" \
-      9 "Consultar y crear tablas con SQL" \
-     10 "Limpiar (elige qué quitar, incluido Docker)" \
-     11 "Desinstalar Docker (con confirmación)" \
-     12 "Exportar imágenes para clase sin internet (profesor)" \
-     13 "Ver el log" \
+      1 "ALUMNO: la práctica paso a paso (TÚ escribes los comandos)" \
+      2 "PROFESOR: demo automática (instala y hace todo)" \
+      3 "Comprobar el equipo" \
+      4 "Instalar Docker, AWS CLI y psql" \
+      5 "Preparar las imágenes" \
+      6 "Arrancar Floci y configurar AWS" \
+      7 "Crear la instancia EC2" \
+      8 "Entrar por SSH en la instancia" \
+      9 "Crear la base de datos" \
+     10 "Consultar y crear tablas con SQL" \
+     11 "Autoevaluar la práctica (nota /100)" \
+     12 "Entregar la práctica" \
+     13 "Ver entregas (profesor)" \
+     14 "Limpiar (elige qué quitar, incluido Docker)" \
+     15 "Desinstalar Docker (con confirmación)" \
+     16 "Exportar imágenes para clase sin internet (profesor)" \
+     17 "Ver el log" \
       0 "Salir" ) || break
 
     case "$opcion" in
-      1) flujo_completo; pausa ;;
-      2) comprobar_equipo; pausa ;;
-      3) instalar_docker && instalar_aws_cli && instalar_psql; pausa ;;
-      4) preparar_imagenes; pausa ;;
-      5) arrancar_floci; pausa ;;
-      6) crear_instancia; pausa ;;
-      7) entrar_en_instancia; pausa ;;
-      8) crear_base_datos; pausa ;;
-      9) consulta_version && crear_tabla && consola_psql; pausa ;;
-     10) limpiar_interactivo; pausa ;;
-     11) desinstalar_docker; pausa ;;
-     12) exportar_imagenes; pausa ;;
-     13) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
+      1) practica_alumno; pausa ;;
+      2) flujo_completo; pausa ;;
+      3) comprobar_equipo; pausa ;;
+      4) instalar_docker && instalar_aws_cli && instalar_psql; pausa ;;
+      5) preparar_imagenes; pausa ;;
+      6) arrancar_floci; pausa ;;
+      7) crear_instancia; pausa ;;
+      8) entrar_en_instancia; pausa ;;
+      9) crear_base_datos; pausa ;;
+     10) consulta_version && crear_tabla && consola_psql; pausa ;;
+     11) autoevaluar_practica; pausa ;;
+     12) entregar_practica; pausa ;;
+     13) ver_entregas; pausa ;;
+     14) limpiar_interactivo; pausa ;;
+     15) desinstalar_docker; pausa ;;
+     16) exportar_imagenes; pausa ;;
+     17) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
       0) break ;;
       *) ;;
     esac
@@ -1457,12 +1617,24 @@ floci-tui.sh — instalador y guía de la práctica de Floci
   ./floci-tui.sh --desinstalar-docker   Quita Docker sin preguntar (cuidado)
   ./floci-tui.sh --sin-internet     No usa la red: instala del paquete offline
 
+La práctica del alumno (en el menú, opción 1):
+  practica/PRACTICA.md              Enunciado: 10 bloques con ejercicios y 20 preguntas
+  ./floci-tui.sh --autoevaluar      Puntúa la práctica sobre 100 (no cambia nada)
+  ./floci-tui.sh --entregar         Puntúa y guarda la entrega en practica/entregas/
+  practica/verificar.sh --bloque N  Comprobar solo un bloque
+
 En macOS:
   DOCKER_MAC=colima   ./floci-tui.sh    instala Colima (ligero, recomendado)
   DOCKER_MAC=desktop  ./floci-tui.sh    instala Docker Desktop
   ./floci-tui.sh --ayuda            Esto
 
-Hace, en orden:
+Dos formas de usarlo:
+  · OPCIÓN 1 — MODO ALUMNO: la práctica de verdad. El TUI te guía bloque a
+    bloque, pero los comandos los escribes tú en otra terminal y él los corrige.
+  · OPCIÓN 2 — MODO PROFESOR: la demo automática, para enseñar en clase o
+    comprobar que todo funciona en un equipo nuevo.
+
+La demo hace, en orden:
   0-1  Instala Docker, la AWS CLI v2 y psql si faltan
   2    Descarga las imágenes y construye la de EC2
   3    Arranca Floci y configura ~/.aws/config
@@ -1485,6 +1657,8 @@ main() {
       --cargar)    CARGAR="$2"; shift ;;
       --desinstalar-docker) DESINSTALAR_DOCKER=1 ;;
       --sin-internet) FORZAR_SIN_INTERNET=1 ;;
+      --autoevaluar)  SOLO_AUTOEVALUAR=1 ;;
+      --entregar)     SOLO_ENTREGAR=1 ;;
       --limpiar)  LIMPIAR=1 ;;
       --ayuda|-h|--help) mostrar_ayuda; exit 0 ;;
       *) printf 'Opción desconocida: %s (usa --ayuda)\n' "$1"; exit 2 ;;
@@ -1499,6 +1673,9 @@ main() {
   if [ "$DESINSTALAR_DOCKER" = 1 ]; then quitar_docker_ahora; exit $?; fi
   if [ -n "$EXPORTAR" ]; then exportar_imagenes "$EXPORTAR"; exit $?; fi
   if [ -n "$CARGAR" ];   then cargar_imagenes "$CARGAR";   exit $?; fi
+
+  if [ "$SOLO_AUTOEVALUAR" = 1 ]; then verificador; exit $?; fi
+  if [ "$SOLO_ENTREGAR" = 1 ]; then verificador --guardar; exit $?; fi
 
   if [ "$SOLO_COMPROBAR" = 1 ]; then
     printf '%s\n' "${C_BOLD}TUIAWSSIM — comprobación del equipo${C_RESET}"

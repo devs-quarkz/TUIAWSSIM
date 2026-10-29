@@ -1,4 +1,11 @@
-TUIAWSSIM.tar.gz
-imagenes-floci.tar.gz
-.DS_Store
+# Entregas de los alumnos: son suyas, no van al repositorio
+practica/entregas/*
+!practica/entregas/.gitkeep
+
+# Artefactos locales
 *.log
+imagenes-floci.tar.gz
+offline/
+offline.tar.gz
+index.html
+TUIAWSSIM.tar.gz
