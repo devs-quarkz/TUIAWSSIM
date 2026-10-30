@@ -1346,6 +1346,7 @@ flujo_completo() {
 # ─────────────────────────────────────────────────────────────
 TIENE_WHIPTAIL=0
 command -v whiptail >/dev/null 2>&1 && TIENE_WHIPTAIL=1
+if [ "${FORZAR_TEXTO:-0}" = 1 ]; then TIENE_WHIPTAIL=0; fi
 
 tui_msg() { # tui_msg "texto" [alto] [ancho]
   local texto="$1" alto="${2:-20}" ancho="${3:-78}"

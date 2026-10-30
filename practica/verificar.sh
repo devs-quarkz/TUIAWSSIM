@@ -324,9 +324,11 @@ if [ "$TOTAL_POSIBLE" -gt 0 ]; then NOTA=$(( OBTENIDO * 100 / TOTAL_POSIBLE )); 
 if [ "$SOLO_JSON" = 0 ]; then
   printf "  %s\n" "──────────────────────────────────────────────────────────"
   if [ "$NOTA" -ge 90 ]; then color="$V"; elif [ "$NOTA" -ge 70 ]; then color="$A"; else color="$R"; fi
-  printf "  ${B}NOTA:${N} ${color}%d/100${N}" "$NOTA"
-  [ -n "$SOLO_BLOQUE" ] && printf "  (bloque %s: %d/%d)" "$SOLO_BLOQUE" "$OBTENIDO" "$TOTAL_POSIBLE"
-  printf "\n"
+  if [ -n "$SOLO_BLOQUE" ]; then
+    printf "  ${B}BLOQUE %s:${N} ${color}%d/%d${N}\n" "$SOLO_BLOQUE" "$OBTENIDO" "$TOTAL_POSIBLE"
+  else
+    printf "  ${B}NOTA:${N} ${color}%d/100${N}\n" "$NOTA"
+  fi
 
   if [ -n "$(printf '%s' "$FALLAN" | tr -d ' ')" ]; then
     BLOQUES=$(printf '%s\n' $FALLAN | sort -un | tr '\n' ' ')
