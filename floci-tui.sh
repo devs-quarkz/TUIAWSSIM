@@ -1446,41 +1446,42 @@ iniciar_practica() {
 
   preparar_imagenes || { fallo "Faltan las imágenes de Docker"; return 1; }
 
-  titulo "Todo listo para empezar"
+  titulo "Todo listo"
   ok "Docker, AWS CLI, psql e imágenes preparados"
-  info "Ahora la práctica: lee cada bloque, escribe los comandos y pulsa ENTER."
-  pausa
-
-  practica_alumno
+  printf '\n'
+  if confirmar "Empezamos la práctica ahora"; then
+    practica_alumno
+  else
+    info "Cuando quieras: menú → 1 (Hacer la práctica)"
+  fi
 }
 
 practica_alumno() {
-  local p b=0 T D
+  local p b=0 T O D linea saltar
   p=$(ruta_practica) || { fallo "No encuentro la práctica (practica/verificar.sh)"; return 1; }
 
-  titulo "Modo alumno: la práctica paso a paso"
+  titulo "Modo alumno: la práctica"
   printf '%s\n' \
-"  Esto NO es la demo: aquí los comandos los escribes TÚ." \
+"  Aquí mismo, sin cambiar de ventana." \
 "" \
-"  Abre el enunciado en otra ventana (o en el editor):" \
-"      practica/PRACTICA.md" \
+"  Te digo el objetivo de cada bloque y TÚ escribes los comandos en esta" \
+"  terminal. Cuando termines, escribe:  listo" \
 "" \
-"  Vamos bloque a bloque. En cada uno:" \
-"    1) lees lo que hay que hacer" \
-"    2) lo escribes tú, en otra terminal" \
-"    3) vuelves aquí, pulsas ENTER y lo compruebo" \
-"" \
-"  Si algo falla, te digo qué mirar y puedes repetirlo."
+"  Órdenes que puedes usar siempre:" \
+"    ayuda   → ver los comandos de este bloque (la guía)" \
+"    listo   → comprobar el bloque y pasar al siguiente" \
+"    saltar  → dejarlo pendiente y seguir" \
+"    salir   → dejar la práctica"
   pausa
 
   while [ "$b" -le 7 ]; do
     case "$b" in
-      0) T="Comprueba tu equipo"
+      0) T="Comprueba tu equipo"; O="Que Docker esté instalado y funcionando."
          D="docker --version
 docker info --format '{{.ServerVersion}}'
 docker run --rm hello-world" ;;
-      1) T="Arranca Floci y configura AWS"
-         D="(el 'docker run --name floci' completo está en PRACTICA.md, bloque 1)
+      1) T="Arranca Floci y configura AWS"; O="Tener tu AWS de mentira escuchando en localhost:4566."
+         D="docker run -d --name floci -p 127.0.0.1:4566:4566 -p 127.0.0.1:7001:7001 -v /var/run/docker.sock:/var/run/docker.sock -e FLOCI_SERVICES_UI_ENABLED=false floci/floci:latest
 curl -s http://localhost:4566/_floci/health
 aws configure set aws_access_key_id test
 aws configure set aws_secret_access_key test
@@ -1488,68 +1489,87 @@ aws configure set region us-east-1
 aws configure set endpoint_url http://localhost:4566
 aws configure set cli_pager \"\"
 aws sts get-caller-identity" ;;
-      2) T="Tu llave SSH"
+      2) T="Tu llave SSH"; O="Crear el par de llaves y guardar la privada con permisos 400."
          D="mkdir -p ~/awsclase
 aws ec2 create-key-pair --key-name clase --query KeyMaterial --output text > ~/awsclase/clase.pem
 chmod 400 ~/awsclase/clase.pem
 ls -l ~/awsclase/clase.pem" ;;
-      3) T="Crea la instancia EC2"
+      3) T="Crea la instancia EC2"; O="Lanzar el servidor y verlo en marcha."
          D="aws ec2 run-instances --image-id ami-0abcdef1234567891 --instance-type t2.micro --key-name clase
 aws ec2 describe-instances --query \"Reservations[].Instances[].{Estado:State.Name,IP:PublicIpAddress}\" --output table" ;;
-      4) T="Entra por SSH"
+      4) T="Entra por SSH"; O="Conectarte a la instancia y comprobar que es Amazon Linux."
          D="docker ps --filter name=floci-aws-ec2 --format '{{.Names}}  {{.Ports}}'
 ssh -p 2200 -i ~/awsclase/clase.pem root@localhost
   (dentro: cat /etc/os-release · whoami · exit)" ;;
-      5) T="La base de datos"
+      5) T="La base de datos"; O="Crear el PostgreSQL y esperar a que esté disponible."
          D="aws rds create-db-instance --db-instance-identifier clase-db --engine postgres --db-instance-class db.t3.micro --master-username admin --master-user-password secreto123 --allocated-storage 20
 aws rds describe-db-instances --query \"DBInstances[].{ID:DBInstanceIdentifier,Estado:DBInstanceStatus,Puerto:Endpoint.Port}\" --output table" ;;
-      6) T="Conéctate con psql"
+      6) T="Conéctate con psql"; O="Hablar con la base de datos desde tu equipo."
          D="PGPASSWORD=secreto123 psql -h localhost -p 7001 -U admin -d postgres -c \"SELECT version();\"" ;;
-      7) T="Tu primera tabla"
+      7) T="Tu primera tabla"; O="Crear la tabla alumnos, insertar 3 filas y consultarlas."
          D="PGPASSWORD=secreto123 psql -h localhost -p 7001 -U admin -d postgres
-   \\pset pager off
+   \pset pager off
    CREATE TABLE alumnos (id SERIAL PRIMARY KEY, nombre VARCHAR(50), nota NUMERIC(4,2));
    INSERT INTO alumnos (nombre, nota) VALUES ('Ana', 8.5), ('Luis', 6.0), ('Marta', 9.25);
-   SELECT * FROM alumnos;" ;;
+   SELECT * FROM alumnos;
+   \q" ;;
     esac
 
     clear 2>/dev/null || true
     titulo "Bloque $b — $T"
-    printf '  Tienes que hacer, en otra terminal:\n\n'
-    printf '%s\n' "$D" | sed 's/^/    /'
-    printf '\n  Enunciado completo: practica/PRACTICA.md → bloque %s\n' "$b"
-    printf '\n  %sCuando lo tengas hecho, pulsa ENTER y lo compruebo.%s' "$C_DIM" "$C_RESET"
-    read -r _ </dev/tty || true
+    printf '  Objetivo: %s\n\n' "$O"
+    printf '  %sEscribe los comandos aquí. Para terminar: listo%s\n' "$C_DIM" "$C_RESET"
+    printf '  %s(ayuda · saltar · salir)%s\n\n' "$C_DIM" "$C_RESET"
+
+    saltar=0
+    while true; do
+      printf '  %s$%s ' "$C_GREEN" "$C_RESET"
+      read -r linea </dev/tty || linea=""
+      case "$linea" in
+        "") continue ;;
+        listo|LISTO|L|ok|hecho|fin) break ;;
+        ayuda|help|'?'|guia) printf '%s\n\n' "$D" | sed 's/^/    /'; continue ;;
+        saltar) saltar=1; break ;;
+        salir|exit|q) info "Dejamos la práctica aquí"; return 0 ;;
+      esac
+      printf '\n'
+      ( eval "$linea" ) 2>&1 | sed 's/^/    /'
+      printf '\n'
+    done
+
+    if [ "$saltar" = 1 ]; then
+      aviso "Bloque $b saltado (queda pendiente)"
+      b=$((b+1)); pausa; continue
+    fi
     echo
     if verificador --bloque "$b"; then
       ok "Bloque $b superado"
     else
-      if confirmar "Repetimos el bloque $b"; then continue; fi
-      aviso "Seguimos, pero el bloque $b queda pendiente"
+      if confirmar "¿Repetimos el bloque $b?"; then continue; fi
+      aviso "Queda pendiente; el verificador final te lo dirá"
     fi
     b=$((b+1))
+    pausa
   done
 
-  titulo "Bloque 8 — Autoevalúa y entrega"
-  info "Voy a puntuar la práctica completa (100 puntos)."
+  titulo "Bloque 8 — Nota y entrega"
+  info "Puntúo la práctica completa (100 puntos)."
   pausa
   verificador
-  if confirmar "Genero la entrega en practica/entregas/"; then
+  if confirmar "¿Genero la entrega en practica/entregas/?"; then
     verificador --guardar
-    ok "Entrega guardada. El profesor la ve con la opción 13 del menú."
-  else
-    info "Puedes entregarla luego con la opción 12 del menú."
+    ok "Entrega guardada. El profesor la ve con la opción 2 del menú."
   fi
 
-  titulo "Bloque 9 — Limpia tu equipo"
+  titulo "Bloque 9 — Limpieza (opcional)"
   printf '%s\n' \
-"  Cuando ya hayas entregado, borra los recursos:" \
+"  Cuando ya hayas entregado puedes borrar los recursos:" \
 "" \
 "    aws ec2 terminate-instances --instance-ids \$(aws ec2 describe-instances --query \"Reservations[].Instances[].InstanceId\" --output text)" \
 "    aws rds delete-db-instance --db-instance-identifier clase-db --skip-final-snapshot" \
 "    docker rm -f floci" \
 "" \
-"  O usa la opción 14 del menú, que te deja elegir qué quitar."
+"  O desde el menú: opción 3 → Limpiar mi equipo"
   pausa
   ok "Fin de la práctica"
 }
