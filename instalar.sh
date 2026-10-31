@@ -115,6 +115,11 @@ if [ -n "$SERVIDOR" ]; then
     if curl -fsSL "$url" -o "$tmp"; then
       mv -f "$tmp" "$dst"
       printf '\033[1;32m    ✓ %s\033[0m\n' "$eti"
+      case "$eti" in
+        herramientas*) cp -f "$dst" "${XDG_CACHE_HOME:-$HOME/.cache}/tuiawssim/" 2>/dev/null ;;
+        imágenes*)     mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/tuiawssim" 2>/dev/null
+                       cp -f "$dst" "${XDG_CACHE_HOME:-$HOME/.cache}/tuiawssim/" 2>/dev/null ;;
+      esac
       return 0
     fi
     rm -f "$tmp"
@@ -123,6 +128,8 @@ if [ -n "$SERVIDOR" ]; then
   }
 
   printf '\n  Comprobando el paquete del profesor…\n'
+  CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/tuiawssim"
+  mkdir -p "$CACHE" 2>/dev/null
 
   # ¿le hace falta algo de verdad? Si ya tiene todo, no se baja nada
   falta_algo() {
@@ -146,6 +153,11 @@ if [ -n "$SERVIDOR" ]; then
     printf '    · herramientas: ya tienes Docker, AWS CLI y psql, no bajo nada\n'
   elif [ "$FORZAR_DESCARGA" = 0 ] && hay_herramientas; then
     printf '    · herramientas: ya las tienes, no las bajo otra vez\n'
+  elif [ -s "$CACHE/herramientas.tar.gz" ]; then
+    printf '    · herramientas: reutilizo la copia guardada (no la bajo)\n'
+    cp -f "$CACHE/herramientas.tar.gz" "$DESTINO/offline/herramientas.tar.gz" 2>/dev/null
+    tar -xzf "$DESTINO/offline/herramientas.tar.gz" -C "$DESTINO/offline" --strip-components=1 2>/dev/null
+    rm -f "$DESTINO/offline/herramientas.tar.gz"
   elif curl -fsI "$SERVIDOR/herramientas.tar.gz" >/dev/null 2>&1; then
     if descargar "$SERVIDOR/herramientas.tar.gz" "$DESTINO/offline/herramientas.tar.gz" "herramientas (~170 MB)"; then
       tar -xzf "$DESTINO/offline/herramientas.tar.gz" -C "$DESTINO/offline" --strip-components=1 2>/dev/null \
@@ -163,6 +175,9 @@ if [ -n "$SERVIDOR" ]; then
     printf '    · imágenes: ya están cargadas en Docker, no bajo nada\n'
   elif [ "$FORZAR_DESCARGA" = 0 ] && hay_imagenes; then
     printf '    · imágenes: ya las tienes, no las bajo otra vez\n'
+  elif [ -s "$CACHE/imagenes-floci.tar.gz" ]; then
+    printf '    · imágenes: reutilizo la copia guardada (no las bajo)\n'
+    cp -f "$CACHE/imagenes-floci.tar.gz" "$DESTINO/offline/imagenes-floci.tar.gz" 2>/dev/null
   elif curl -fsI "$SERVIDOR/imagenes-floci.tar.gz" >/dev/null 2>&1; then
     descargar "$SERVIDOR/imagenes-floci.tar.gz" "$DESTINO/offline/imagenes-floci.tar.gz" "imágenes de Docker (~260 MB)"
   fi

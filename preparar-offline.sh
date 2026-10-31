@@ -19,6 +19,11 @@ die()  { printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; exit 1; }
 # Solo para decidir si descargamos o reutilizamos lo que ya hay
 tiene_red() { curl -fsS -m 5 -o /dev/null https://awscli.amazonaws.com 2>/dev/null; }
 
+# Caché fuera del proyecto: sobrevive a borrar ~/TUIAWSSIM y evita volver a bajar
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/tuiawssim"
+mkdir -p "$CACHE/paquetes" 2>/dev/null
+guardar_cache() { [ -f "$1" ] && cp -f "$1" "$CACHE/" 2>/dev/null; }
+
 msg "Creando el paquete offline en $OUT"
 mkdir -p "$OUT/paquetes" "$OUT"
 
@@ -26,6 +31,9 @@ mkdir -p "$OUT/paquetes" "$OUT"
 msg "Paquetes de Docker, psql y unzip"
 if [ "$(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l)" -ge 5 ]; then
   ok "ya están en offline/paquetes ($(ls "$OUT/paquetes"/*.deb | wc -l) .deb): no descargo nada"
+elif [ "$(ls "$CACHE/paquetes"/*.deb 2>/dev/null | wc -l)" -ge 5 ]; then
+  cp -f "$CACHE/paquetes"/*.deb "$OUT/paquetes/" 2>/dev/null
+  ok "reutilizados de la caché ($(ls "$OUT/paquetes"/*.deb | wc -l) .deb): no descargo nada"
 elif ! command -v apt-get >/dev/null 2>&1; then
   warn "No hay apt-get: este equipo no puede preparar los paquetes Linux"
 elif ! tiene_red; then
@@ -44,7 +52,8 @@ else
       postgresql-client postgresql-client-common unzip 2>&1 | tail -3
   cp -f "$CACHE"/*.deb "$OUT/paquetes/" 2>/dev/null
   rm -f "$OUT/paquetes"/*.deb.part 2>/dev/null
-  ok "$(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l) paquetes descargados"
+  cp -f "$OUT/paquetes"/*.deb "$CACHE/paquetes/" 2>/dev/null
+  ok "$(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l) paquetes descargados (guardados en la caché)"
 fi
 
 # ── 2. Instalador de la AWS CLI v2 ─────────────────────────────────
@@ -52,12 +61,18 @@ msg "Instalador de la AWS CLI v2"
 ARQ="$(uname -m)"; case "$ARQ" in aarch64|arm64) A=aarch64 ;; *) A=x86_64 ;; esac
 if [ -s "$OUT/awscliv2.zip" ]; then
   ok "ya está ($(du -h "$OUT/awscliv2.zip" | cut -f1)): no lo descargo"
+elif [ -s "$CACHE/awscliv2.zip" ]; then
+  cp -f "$CACHE/awscliv2.zip" "$OUT/awscliv2.zip"
+  ok "reutilizada de la caché ($(du -h "$OUT/awscliv2.zip" | cut -f1)): no la descargo"
 elif ! tiene_red; then
   warn "Sin internet y sin offline/awscliv2.zip: los alumnos no podrán instalarla"
 else
-  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$A.zip" -o "$OUT/awscliv2.zip" \
-    && ok "AWS CLI: $(du -h "$OUT/awscliv2.zip" | cut -f1)" \
-    || warn "No pude descargar la AWS CLI"
+  if curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$A.zip" -o "$OUT/awscliv2.zip"; then
+    guardar_cache "$OUT/awscliv2.zip"
+    ok "AWS CLI: $(du -h "$OUT/awscliv2.zip" | cut -f1) (guardada en la caché)"
+  else
+    warn "No pude descargar la AWS CLI"
+  fi
 fi
 
 # ── 3. Imágenes de Docker ─────────────────────────────────────────
@@ -67,6 +82,14 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   for IMG in floci/floci:latest postgres:16.3-alpine alpine:3.21 public.ecr.aws/amazonlinux/amazonlinux:2023; do
     docker image inspect "$IMG" >/dev/null 2>&1 || FALTAN="$FALTAN $IMG"
   done
+  if [ -n "$FALTAN" ] && [ -s "$CACHE/imagenes-floci.tar.gz" ]; then
+    info "Faltan imágenes: las cargo de la caché (sin internet)"
+    if docker load < "$CACHE/imagenes-floci.tar.gz" >/dev/null 2>&1; then
+      FALTAN=""
+      ok "imágenes cargadas de la caché"
+    fi
+  fi
+
   if [ -n "$FALTAN" ]; then
     if tiene_red; then
       warn "Faltan imágenes:$FALTAN — las descargo"
@@ -138,6 +161,14 @@ tar -czf "$DIR/herramientas.tar.gz" -C "$DIR" offline/paquetes offline/awscliv2.
 # todo junto (por compatibilidad)
 tar -czf "$DIR/offline.tar.gz" -C "$DIR" offline
 ok "offline.tar.gz: $(du -h "$DIR/offline.tar.gz" | cut -f1)"
+
+# Copia en la caché: la próxima vez no se baja nada aunque se borre el proyecto
+msg "Guardando copia en la caché ($CACHE)"
+for f in herramientas.tar.gz imagenes-floci.tar.gz offline.tar.gz; do
+  [ -f "$DIR/$f" ] && cp -f "$DIR/$f" "$CACHE/" 2>/dev/null
+done
+[ -f "$DIR/offline/imagenes-floci.tar.gz" ] && cp -f "$DIR/offline/imagenes-floci.tar.gz" "$CACHE/" 2>/dev/null
+ok "caché: $(du -sh "$CACHE" 2>/dev/null | cut -f1)"
 
 echo
 msg "Paquete listo: $OUT"
