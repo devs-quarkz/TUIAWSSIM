@@ -16,19 +16,28 @@ die()  { printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; exit 1; }
 
 [ "$(uname -s)" = "Darwin" ] && { warn "Esto se ejecuta en el equipo Linux del profesor (Mint/Ubuntu)."; exit 1; }
 
+# Solo para decidir si descargamos o reutilizamos lo que ya hay
+tiene_red() { curl -fsS -m 5 -o /dev/null https://awscli.amazonaws.com 2>/dev/null; }
+
 msg "Creando el paquete offline en $OUT"
 mkdir -p "$OUT/paquetes" "$OUT"
 
 # ── 1. Paquetes .deb (Docker, psql, unzip) con sus dependencias ─────
-msg "Descargando los paquetes de Docker, psql y unzip"
-if command -v apt-get >/dev/null 2>&1; then
+msg "Paquetes de Docker, psql y unzip"
+if [ "$(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l)" -ge 5 ]; then
+  ok "ya están en offline/paquetes ($(ls "$OUT/paquetes"/*.deb | wc -l) .deb): no descargo nada"
+elif ! command -v apt-get >/dev/null 2>&1; then
+  warn "No hay apt-get: este equipo no puede preparar los paquetes Linux"
+elif ! tiene_red; then
+  warn "Sin internet y sin paquetes en offline/paquetes."
+  warn "Ejecútalo una vez donde haya red, o copia offline/paquetes de otro equipo."
+else
   # sudo con contraseña por variable (para lanzarlo por SSH sin terminal)
   SUDO() {
     if [ "$(id -u)" -eq 0 ]; then "$@"
     elif [ -n "${SUDO_PASS:-}" ]; then printf '%s\n' "$SUDO_PASS" | sudo -S "$@" 2>/dev/null
     else sudo "$@"; fi
   }
-  SUDO apt-get clean
   SUDO apt-get update -qq || warn "apt update falló; sigo con la caché que haya"
   SUDO apt-get install --download-only -y --reinstall \
       docker.io containerd runc \
@@ -36,16 +45,20 @@ if command -v apt-get >/dev/null 2>&1; then
   cp -f "$CACHE"/*.deb "$OUT/paquetes/" 2>/dev/null
   rm -f "$OUT/paquetes"/*.deb.part 2>/dev/null
   ok "$(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l) paquetes descargados"
-else
-  warn "No hay apt-get: este equipo no sirve para preparar el paquete Linux"
 fi
 
 # ── 2. Instalador de la AWS CLI v2 ─────────────────────────────────
-msg "Descargando la AWS CLI v2"
+msg "Instalador de la AWS CLI v2"
 ARQ="$(uname -m)"; case "$ARQ" in aarch64|arm64) A=aarch64 ;; *) A=x86_64 ;; esac
-curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$A.zip" -o "$OUT/awscliv2.zip" \
-  && ok "AWS CLI: $(du -h "$OUT/awscliv2.zip" | cut -f1)" \
-  || warn "No pude descargar la AWS CLI"
+if [ -s "$OUT/awscliv2.zip" ]; then
+  ok "ya está ($(du -h "$OUT/awscliv2.zip" | cut -f1)): no lo descargo"
+elif ! tiene_red; then
+  warn "Sin internet y sin offline/awscliv2.zip: los alumnos no podrán instalarla"
+else
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$A.zip" -o "$OUT/awscliv2.zip" \
+    && ok "AWS CLI: $(du -h "$OUT/awscliv2.zip" | cut -f1)" \
+    || warn "No pude descargar la AWS CLI"
+fi
 
 # ── 3. Imágenes de Docker ─────────────────────────────────────────
 msg "Guardando las imágenes de Docker (tarda un par de minutos)"
@@ -55,8 +68,13 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     docker image inspect "$IMG" >/dev/null 2>&1 || FALTAN="$FALTAN $IMG"
   done
   if [ -n "$FALTAN" ]; then
-    warn "Faltan imágenes:$FALTAN — las descargo"
-    for IMG in $FALTAN; do docker pull "$IMG" >/dev/null 2>&1; done
+    if tiene_red; then
+      warn "Faltan imágenes:$FALTAN — las descargo"
+      for IMG in $FALTAN; do docker pull "$IMG" >/dev/null 2>&1; done
+    else
+      warn "Faltan imágenes:$FALTAN y no hay internet: no las puedo traer"
+      warn "Cárgalas antes en este equipo (docker pull una vez) y vuelve a ejecutar."
+    fi
   fi
   # La imagen de EC2 del paquete TIENE que llevar sshd y el arreglo de PAM:
   # si no, el alumno sin internet no puede entrar por SSH.
