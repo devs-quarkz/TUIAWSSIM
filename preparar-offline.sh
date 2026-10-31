@@ -17,12 +17,45 @@ die()  { printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; exit 1; }
 [ "$(uname -s)" = "Darwin" ] && { warn "Esto se ejecuta en el equipo Linux del profesor (Mint/Ubuntu)."; exit 1; }
 
 # Solo para decidir si descargamos o reutilizamos lo que ya hay
-tiene_red() { curl -fsS -m 5 -o /dev/null https://awscli.amazonaws.com 2>/dev/null; }
+tiene_red() {
+  [ "${FORZAR_DESCARGA:-0}" = 1 ] && return 0
+  local u
+  for u in https://awscli.amazonaws.com https://github.com https://deb.debian.org https://registry-1.docker.io; do
+    curl -fsS -m 4 -o /dev/null "$u" 2>/dev/null && return 0
+  done
+  return 1
+}
 
 # Caché fuera del proyecto: sobrevive a borrar ~/TUIAWSSIM y evita volver a bajar
-CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/tuiawssim"
-mkdir -p "$CACHE/paquetes" 2>/dev/null
-guardar_cache() { [ -f "$1" ] && cp -f "$1" "$CACHE/" 2>/dev/null; }
+# La caché va en el home del usuario REAL (aunque el script corra con sudo)
+if [ -n "${TUIAWSSIM_CACHE:-}" ]; then
+  CACHE_DIR="$TUIAWSSIM_CACHE"
+elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+  CACHE_DIR="$(getent passwd "$SUDO_USER" | cut -d: -f6)/.cache/tuiawssim"
+else
+  CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tuiawssim"
+fi
+mkdir -p "$CACHE_DIR/paquetes" 2>/dev/null
+# Guarda en la caché SOLO si mejora lo que ya hay (nunca la encoge)
+# ¿el tar de herramientas trae los .deb? (sin tubería: con pipefail falla)
+tiene_debs_dentro() {
+  local lista
+  lista="$(mktemp)"
+  tar -tzf "$1" 2>/dev/null > "$lista" || true
+  grep -q 'paquetes/.*\.deb' "$lista" 2>/dev/null
+  local r=$?
+  rm -f "$lista"
+  return $r
+}
+
+guardar_cache() {
+  local src="$1" dst="$CACHE_DIR/$(basename "$1")"
+  [ -f "$src" ] || return 0
+  if [ -f "$dst" ] && [ "$(stat -c %s "$dst" 2>/dev/null || echo 0)" -ge "$(stat -c %s "$src" 2>/dev/null || echo 0)" ]; then
+    return 0
+  fi
+  cp -f "$src" "$dst" 2>/dev/null
+}
 
 msg "Creando el paquete offline en $OUT"
 mkdir -p "$OUT/paquetes" "$OUT"
@@ -30,10 +63,15 @@ mkdir -p "$OUT/paquetes" "$OUT"
 # ── 1. Paquetes .deb (Docker, psql, unzip) con sus dependencias ─────
 msg "Paquetes de Docker, psql y unzip"
 if [ "$(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l)" -ge 5 ]; then
+  cp -f "$OUT/paquetes"/*.deb "$CACHE_DIR/paquetes/" 2>/dev/null
   ok "ya están en offline/paquetes ($(ls "$OUT/paquetes"/*.deb | wc -l) .deb): no descargo nada"
-elif [ "$(ls "$CACHE/paquetes"/*.deb 2>/dev/null | wc -l)" -ge 5 ]; then
-  cp -f "$CACHE/paquetes"/*.deb "$OUT/paquetes/" 2>/dev/null
+elif [ "$(ls "$CACHE_DIR/paquetes"/*.deb 2>/dev/null | wc -l)" -ge 5 ]; then
+  cp -f "$CACHE_DIR/paquetes"/*.deb "$OUT/paquetes/" 2>/dev/null
   ok "reutilizados de la caché ($(ls "$OUT/paquetes"/*.deb | wc -l) .deb): no descargo nada"
+elif [ -s "$CACHE_DIR/herramientas.tar.gz" ] && \
+     tiene_debs_dentro "$CACHE_DIR/herramientas.tar.gz"; then
+  tar -xzf "$CACHE_DIR/herramientas.tar.gz" -C "$OUT" --strip-components=1 2>/dev/null
+  ok "reutilizados de la caché ($(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l) .deb): no descargo nada"
 elif ! command -v apt-get >/dev/null 2>&1; then
   warn "No hay apt-get: este equipo no puede preparar los paquetes Linux"
 elif ! tiene_red; then
@@ -52,7 +90,7 @@ else
       postgresql-client postgresql-client-common unzip 2>&1 | tail -3
   cp -f "$CACHE"/*.deb "$OUT/paquetes/" 2>/dev/null
   rm -f "$OUT/paquetes"/*.deb.part 2>/dev/null
-  cp -f "$OUT/paquetes"/*.deb "$CACHE/paquetes/" 2>/dev/null
+  cp -f "$OUT/paquetes"/*.deb "$CACHE_DIR/paquetes/" 2>/dev/null
   ok "$(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l) paquetes descargados (guardados en la caché)"
 fi
 
@@ -61,8 +99,8 @@ msg "Instalador de la AWS CLI v2"
 ARQ="$(uname -m)"; case "$ARQ" in aarch64|arm64) A=aarch64 ;; *) A=x86_64 ;; esac
 if [ -s "$OUT/awscliv2.zip" ]; then
   ok "ya está ($(du -h "$OUT/awscliv2.zip" | cut -f1)): no lo descargo"
-elif [ -s "$CACHE/awscliv2.zip" ]; then
-  cp -f "$CACHE/awscliv2.zip" "$OUT/awscliv2.zip"
+elif [ -s "$CACHE_DIR/awscliv2.zip" ]; then
+  cp -f "$CACHE_DIR/awscliv2.zip" "$OUT/awscliv2.zip"
   ok "reutilizada de la caché ($(du -h "$OUT/awscliv2.zip" | cut -f1)): no la descargo"
 elif ! tiene_red; then
   warn "Sin internet y sin offline/awscliv2.zip: los alumnos no podrán instalarla"
@@ -83,7 +121,7 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     docker image inspect "$IMG" >/dev/null 2>&1 || FALTAN="$FALTAN $IMG"
   done
   if [ -n "$FALTAN" ] && [ -s "$CACHE/imagenes-floci.tar.gz" ]; then
-    info "Faltan imágenes: las cargo de la caché (sin internet)"
+    msg "Faltan imágenes: las cargo de la caché (sin internet)"
     if docker load < "$CACHE/imagenes-floci.tar.gz" >/dev/null 2>&1; then
       FALTAN=""
       ok "imágenes cargadas de la caché"
@@ -163,12 +201,13 @@ tar -czf "$DIR/offline.tar.gz" -C "$DIR" offline
 ok "offline.tar.gz: $(du -h "$DIR/offline.tar.gz" | cut -f1)"
 
 # Copia en la caché: la próxima vez no se baja nada aunque se borre el proyecto
-msg "Guardando copia en la caché ($CACHE)"
+msg "Guardando copia en la caché ($CACHE_DIR)"
 for f in herramientas.tar.gz imagenes-floci.tar.gz offline.tar.gz; do
-  [ -f "$DIR/$f" ] && cp -f "$DIR/$f" "$CACHE/" 2>/dev/null
+  [ -f "$DIR/$f" ] && guardar_cache "$DIR/$f"
 done
-[ -f "$DIR/offline/imagenes-floci.tar.gz" ] && cp -f "$DIR/offline/imagenes-floci.tar.gz" "$CACHE/" 2>/dev/null
-ok "caché: $(du -sh "$CACHE" 2>/dev/null | cut -f1)"
+[ -f "$DIR/offline/imagenes-floci.tar.gz" ] && guardar_cache "$DIR/offline/imagenes-floci.tar.gz"
+cp -f "$DIR"/offline/paquetes/*.deb "$CACHE_DIR/paquetes/" 2>/dev/null
+ok "caché: $(du -sh "$CACHE_DIR" 2>/dev/null | cut -f1)"
 
 echo
 msg "Paquete listo: $OUT"
