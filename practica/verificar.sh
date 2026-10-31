@@ -280,26 +280,26 @@ chk_psql() {
 
 chk_tabla() {
   hay psql || { DETALLE="psql no está instalado"; return 1; }
-  local n
+  local n t c
   n=$(psqlq 'SELECT COUNT(*) FROM alumnos;' | head -1 | tr -d '[:space:]')
-  if [ -z "$n" ] || ! printf '%s' "$n" | grep -qE '^[0-9]+$'; then
-    DETALLE="no existe la tabla alumnos (o no se puede consultar)"
-    return 1
+
+  # Si 'alumnos' no existe (o tiene menos de 3 filas), buscamos cualquier tabla
+  # del alumno con al menos 3 filas: el objetivo es saber hacerlo, no el nombre.
+  if ! printf '%s' "$n" | grep -qE '^[0-9]+$' || [ "$n" -lt 3 ]; then
+    for t in $(psqlq "SELECT tablename FROM pg_tables WHERE schemaname='public'" | tr -d ' '); do
+      c=$(psqlq "SELECT COUNT(*) FROM \"$t\"" | head -1 | tr -d '[:space:]')
+      if printf '%s' "$c" | grep -qE '^[0-9]+$' && [ "$c" -ge 3 ]; then
+        DETALLE="tabla '$t' con $c filas (el enunciado pedía 'alumnos')"
+        return 0
+      fi
+    done
   fi
-  if [ "$n" -ge 3 ]; then
+
+  if printf '%s' "$n" | grep -qE '^[0-9]+$' && [ "$n" -ge 3 ]; then
     DETALLE="tabla alumnos con $n filas"
     return 0
   fi
-  # ¿Hay otra tabla con datos? El alumno pudo llamarla de otra forma
-  local t c
-  for t in $(psqlq "SELECT tablename FROM pg_tables WHERE schemaname='public'" | tr -d ' '); do
-    c=$(psqlq "SELECT COUNT(*) FROM \"$t\"" | head -1 | tr -d '[:space:]')
-    if [ -n "$c" ] && printf '%s' "$c" | grep -qE '^[0-9]+$' && [ "$c" -ge 3 ]; then
-      DETALLE="tabla '$t' con $c filas (el enunciado pedía 'alumnos')"
-      return 0
-    fi
-  done
-  if [ -n "$n" ] && printf '%s' "$n" | grep -qE '^[0-9]+$' && [ "$n" -gt 0 ]; then
+  if printf '%s' "$n" | grep -qE '^[0-9]+$' && [ "$n" -gt 0 ]; then
     PUNTOS_PARCIAL=$(( 20 * n / 3 ))
     DETALLE="la tabla alumnos tiene $n filas (hacen falta 3)"
     return 1
