@@ -1659,9 +1659,9 @@ servir_clase() {
     ok "El servidor ya estaba corriendo"
   else
     info "Levantando el servidor en segundo plano…"
-    # nohup + setsid: que siga vivo aunque se cierre la terminal o el TUI
+    # Que siga vivo al cerrar el TUI o la terminal: sesión propia (setsid --fork)
     if hay_comando setsid; then
-      ( nohup setsid ./servir.sh 8000 > /tmp/servir.log 2>&1 < /dev/null & ) 2>/dev/null
+      setsid --fork ./servir.sh 8000 > /tmp/servir.log 2>&1 < /dev/null 2>&1 || true
     else
       ( nohup ./servir.sh 8000 > /tmp/servir.log 2>&1 < /dev/null & ) 2>/dev/null
     fi
