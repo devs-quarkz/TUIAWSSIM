@@ -1652,41 +1652,101 @@ preparar_paquete() {
   ( cd "$DIR_SCRIPT" && SUDO_PASS="${SUDO_PASS:-}" ./preparar-offline.sh )
 }
 
+nota_y_entregar() {
+  titulo "Mi nota"
+  verificador
+  printf '
+'
+  if confirmar "¿Genero ya la entrega?"; then
+    verificador --guardar
+  else
+    info "Puedes entregarla luego desde la opción 2 del menú."
+  fi
+}
+
+ayuda_alumno() {
+  local o
+  while true; do
+    o=$(tui_menu "Ayuda" \
+"  Si algo no funciona, empieza por el diagnóstico.
+  Si sigue mal, pasa el log al profesor (opción 2)." \
+      1 "Diagnóstico del equipo" \
+      2 "Ver el log" \
+      3 "Entrar por SSH en la instancia" \
+      4 "Consultar y crear tablas con SQL" \
+      5 "Limpiar mi equipo (contenedores e imágenes)" \
+      6 "Cambiar de rol (alumno / profesor)" \
+      0 "Volver" ) || return 0
+    case "$o" in
+      1) comprobar_equipo; pausa ;;
+      2) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
+      3) entrar_en_instancia; pausa ;;
+      4) consulta_version && crear_tabla && consola_psql; pausa ;;
+      5) limpiar_interactivo; pausa ;;
+      6) cambiar_rol; return 0 ;;
+      0|"") return 0 ;;
+    esac
+  done
+}
+
+herramientas_profesor() {
+  local o
+  while true; do
+    o=$(tui_menu "Herramientas" \
+"  Mantenimiento del equipo. No hace falta para dar clase." \
+      1 "Instalar Docker, AWS CLI y psql" \
+      2 "Exportar imágenes para USB" \
+      3 "Diagnóstico del equipo" \
+      4 "Autoevaluar este equipo (nota /100)" \
+      5 "Ver el log" \
+      6 "Limpiar (elegir qué quitar)" \
+      7 "Desinstalar Docker" \
+      8 "Cambiar de rol (alumno / profesor)" \
+      0 "Volver" ) || return 0
+    case "$o" in
+      1) instalar_docker && instalar_aws_cli && instalar_psql; pausa ;;
+      2) exportar_imagenes; pausa ;;
+      3) comprobar_equipo; pausa ;;
+      4) autoevaluar_practica; pausa ;;
+      5) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
+      6) limpiar_interactivo; pausa ;;
+      7) desinstalar_docker; pausa ;;
+      8) cambiar_rol; return 0 ;;
+      0|"") return 0 ;;
+    esac
+  done
+}
+
+preparar_y_servir() {
+  titulo "Preparar y servir la clase"
+  if [ ! -f "$DIR_SCRIPT/offline.tar.gz" ] && [ ! -d "$DIR_SCRIPT/offline" ]; then
+    aviso "Todavía no hay paquete para los alumnos."
+    preparar_paquete || return 1
+  else
+    ok "El paquete ya está preparado"
+  fi
+  servir_clase
+}
+
 menu_alumno() {
   local opcion
   tui_pantalla
-  opcion=$(tui_menu "Menú del ALUMNO" \
-"  Tú haces la práctica. El TUI te corrige.
+  opcion=$(tui_menu "ALUMNO" \
+"  Dos pasos: haces la práctica y la entregas.
 
   Estado:
     Docker:     $(if docker_ok; then echo "funcionando"; elif hay_comando docker; then echo "instalado pero sin responder"; else echo "sin instalar"; fi)
-    Instancia:  ${IP_INSTANCIA:-ninguna}
-    Puerto DB:  ${PUERTO_DB}" \
-     1 "INICIAR LA PRÁCTICA (comprueba, instala lo que falte y empieza)" \
-     2 "Autoevaluar mi práctica (nota /100)" \
-     3 "Entregar la práctica" \
-     4 "Ver mi entrega" \
-     5 "Diagnóstico del equipo (para pedir ayuda)" \
-     6 "Entrar por SSH en la instancia" \
-     7 "Consultar y crear tablas con SQL" \
-     8 "Limpiar mi equipo (contenedores e imágenes de la práctica)" \
-     9 "Ver el log" \
-     r "Cambiar de rol (alumno / profesor)" \
+    Instancia:  ${IP_INSTANCIA:-ninguna}" \
+     1 "Hacer la práctica (te guía y te corrige)" \
+     2 "Mi nota y entregar" \
+     3 "Ayuda" \
      0 "Salir" ) || return 1
 
   case "$opcion" in
-     1) iniciar_practica; pausa ;;
-     2) autoevaluar_practica; pausa ;;
-     3) entregar_practica; pausa ;;
-     4) ver_entregas; pausa ;;
-     5) comprobar_equipo; pausa ;;
-     6) entrar_en_instancia; pausa ;;
-     7) consulta_version && crear_tabla && consola_psql; pausa ;;
-     8) limpiar_interactivo; pausa ;;
-     9) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
-     r|R) cambiar_rol ;;
-     0|"") return 1 ;;
-     *) ;;
+    1) iniciar_practica; pausa ;;
+    2) nota_y_entregar; pausa ;;
+    3) ayuda_alumno ;;
+    0|"") return 1 ;;
   esac
   return 0
 }
@@ -1694,43 +1754,25 @@ menu_alumno() {
 menu_profesor() {
   local opcion
   tui_pantalla
-  opcion=$(tui_menu "Menú del PROFESOR" \
-"  Preparar la clase y revisar el trabajo de los alumnos.
+  opcion=$(tui_menu "PROFESOR" \
+"  Prepara la clase, sírvela y revisa las entregas.
 
   Estado:
-    Docker:      $(if docker_ok; then echo "funcionando"; elif hay_comando docker; then echo "instalado sin responder"; else echo "sin instalar"; fi)
     Paquete:     $(if [ -f "$DIR_SCRIPT/offline.tar.gz" ]; then echo "listo"; elif [ -d "$DIR_SCRIPT/offline" ]; then echo "en offline/"; else echo "no preparado"; fi)
     Servidor:    $(if pgrep -f '^python3 -m http.server' >/dev/null 2>&1; then echo "activo (:8000)"; else echo "parado"; fi)
     Entregas:    $(ls -1 "$(ruta_practica 2>/dev/null)/entregas" 2>/dev/null | wc -l | tr -d ' ')" \
-     1 "Preparar el paquete para clase SIN internet" \
-     2 "Servir la clase ahora (levantar el servidor)" \
-     3 "Demo automática (probar que este equipo funciona)" \
-     4 "Exportar imágenes para llevar en USB" \
-     5 "Ver entregas recibidas" \
-     6 "Diagnóstico del equipo" \
-     7 "Instalar Docker, AWS CLI y psql" \
-     8 "Autoevaluar este equipo (nota /100)" \
-     9 "Limpiar (elegir qué quitar)" \
-     d "Desinstalar Docker" \
-    10 "Ver el log" \
-     r "Cambiar de rol (alumno / profesor)" \
+     1 "Preparar y servir la clase" \
+     2 "Ver entregas" \
+     3 "Probar este equipo (demo)" \
+     4 "Herramientas" \
      0 "Salir" ) || return 1
 
   case "$opcion" in
-     1) preparar_paquete; pausa ;;
-     2) servir_clase; pausa ;;
-     3) flujo_completo; pausa ;;
-     4) exportar_imagenes; pausa ;;
-     5) ver_entregas; pausa ;;
-     6) comprobar_equipo; pausa ;;
-     7) instalar_docker && instalar_aws_cli && instalar_psql; pausa ;;
-     8) autoevaluar_practica; pausa ;;
-     9) limpiar_interactivo; pausa ;;
-     d|D) desinstalar_docker; pausa ;;
-    10) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
-     r|R) cambiar_rol ;;
-     0|"") return 1 ;;
-     *) ;;
+    1) preparar_y_servir; pausa ;;
+    2) ver_entregas; pausa ;;
+    3) flujo_completo; pausa ;;
+    4) herramientas_profesor ;;
+    0|"") return 1 ;;
   esac
   return 0
 }
