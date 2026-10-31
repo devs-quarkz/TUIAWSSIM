@@ -1446,79 +1446,235 @@ iniciar_practica() {
 
   preparar_imagenes || { fallo "Faltan las imágenes de Docker"; return 1; }
 
-  titulo "Todo listo"
+  titulo "Equipo listo"
   ok "Docker, AWS CLI, psql e imágenes preparados"
   printf '\n'
-  if confirmar "Empezamos la práctica ahora"; then
-    practica_alumno
-  else
-    info "Cuando quieras: menú → 1 (Hacer la práctica)"
-  fi
+  info "Siguiente paso: menú → 1 → 2 (Guía) para aprender."
+  info "Cuando te sientas seguro: 1 → 3 (Práctica sin ayuda)."
 }
 
-practica_alumno() {
-  local p b=0 T O D linea saltar
-  p=$(ruta_practica) || { fallo "No encuentro la práctica (practica/verificar.sh)"; return 1; }
+# ─────────────────────────────────────────────────────────────
+#  Contenido didáctico de la práctica
+# ─────────────────────────────────────────────────────────────
+bloque_titulo() {
+  case "$1" in
+    0) echo "Comprueba tu equipo" ;;
+    1) echo "Arranca Floci y configura AWS" ;;
+    2) echo "Tu llave SSH" ;;
+    3) echo "Crea la instancia EC2" ;;
+    4) echo "Entra por SSH" ;;
+    5) echo "La base de datos (RDS)" ;;
+    6) echo "Conéctate con psql" ;;
+    7) echo "Tu primera tabla" ;;
+    *) echo "" ;;
+  esac
+}
 
-  titulo "Modo alumno: la práctica"
-  printf '%s\n' \
-"  Aquí mismo, sin cambiar de ventana." \
-"" \
-"  Te digo el objetivo de cada bloque y TÚ escribes los comandos en esta" \
-"  terminal. Cuando termines, escribe:  listo" \
-"" \
-"  Órdenes que puedes usar siempre:" \
-"    ayuda   → ver los comandos de este bloque (la guía)" \
-"    listo   → comprobar el bloque y pasar al siguiente" \
-"    saltar  → dejarlo pendiente y seguir" \
-"    salir   → dejar la práctica"
-  pausa
+bloque_objetivo() {
+  case "$1" in
+    0) echo "Comprobar que Docker está instalado y funcionando." ;;
+    1) echo "Tener tu AWS de mentira escuchando en localhost:4566." ;;
+    2) echo "Crear el par de llaves y guardar la privada con permisos 400." ;;
+    3) echo "Lanzar un servidor (instancia) y verlo en marcha." ;;
+    4) echo "Entrar por SSH y comprobar que es Amazon Linux." ;;
+    5) echo "Crear un PostgreSQL gestionado y esperar a que acepte conexiones." ;;
+    6) echo "Hablar con la base de datos desde tu equipo." ;;
+    7) echo "Crear la tabla alumnos, insertar 3 filas y consultarlas." ;;
+    *) echo "" ;;
+  esac
+}
 
-  while [ "$b" -le 7 ]; do
-    case "$b" in
-      0) T="Comprueba tu equipo"; O="Que Docker esté instalado y funcionando."
-         D="docker --version
+bloque_teoria() {
+  case "$1" in
+    0) cat <<'TXT'
+  Docker ejecuta "contenedores": cajas aisladas que comparten el núcleo de tu
+  Linux. Arrancan en segundos y pesan poco; no son máquinas virtuales.
+
+  En AWS real no instalas nada: usas su infraestructura. Aquí Docker es lo que
+  nos permite tener una AWS de mentira dentro del portátil.
+TXT
+    ;;
+    1) cat <<'TXT'
+  Floci emula la API de AWS: escucha en el puerto 4566 y responde igual que
+  AWS. El cliente `aws` no sabe que es falso, solo cambia la dirección.
+
+  Paralelo con AWS de verdad: tus comandos irían a
+  https://ec2.us-east-1.amazonaws.com con tus claves IAM. Aquí van a
+  http://localhost:4566 con claves inventadas ("test").
+TXT
+    ;;
+    2) cat <<'TXT'
+  AWS no te da una contraseña: te da un par de llaves. La pública se queda en
+  AWS y a ti te entrega la privada UNA sola vez (el archivo .pem). Sin ese
+  archivo no hay forma de entrar.
+
+  Paralelo con AWS: el par pertenece a una región y no se puede recuperar
+  después. Si lo pierdes, creas otro y una instancia nueva.
+TXT
+    ;;
+    3) cat <<'TXT'
+  Una instancia es un servidor. La AMI es la imagen del disco (aquí Amazon
+  Linux 2023) y el tipo (t2.micro) define CPU y memoria.
+
+  Paralelo con AWS: t2.micro entra en la capa gratuita, se factura por segundo
+  mientras está encendida, y la IP 172.31.x.x es privada (interna). Para
+  publicarla se usa una IP elástica.
+TXT
+    ;;
+    4) cat <<'TXT'
+  SSH es una terminal remota cifrada. La instancia escucha en su puerto 22 y el
+  2200 de tu equipo se publica hacia ese 22.
+
+  Paralelo con AWS: allí entras a la IP pública (o por un bastión / SSM Session
+  Manager) y el usuario habitual es ec2-user, no root.
+TXT
+    ;;
+    5) cat <<'TXT'
+  RDS es una base de datos "gestionada": AWS se encarga de las copias, los
+  parches y el arranque. Tú eliges motor, tamaño y credenciales.
+
+  Paralelo con AWS: un RDS real tarda varios minutos en estar "available" y
+  trae backups automáticos y, si quieres, réplica en otra zona.
+TXT
+    ;;
+    6) cat <<'TXT'
+  psql es el cliente oficial de PostgreSQL. -h host, -p puerto, -U usuario y
+  -d base de datos. La contraseña va en PGPASSWORD para no dejarla en el
+  historial de la terminal.
+
+  Paralelo con AWS: contra un RDS real el host es un nombre DNS largo y la
+  conexión va cifrada con SSL; el puerto sigue siendo 5432.
+TXT
+    ;;
+    7) cat <<'TXT'
+  SQL básico: CREATE TABLE define la tabla, INSERT mete filas, SELECT las lee,
+  UPDATE las cambia y DELETE las borra. SERIAL genera los ids solo.
+
+  Paralelo con AWS: es el mismo PostgreSQL que tendrías en RDS o Aurora; lo
+  único que cambia es quién administra el servidor.
+TXT
+    ;;
+  esac
+}
+
+bloque_comandos() {
+  case "$1" in
+    0) cat <<'TXT'
+# versión del cliente de Docker
+docker --version
+# estado del motor: si responde, podemos crear contenedores
 docker info --format '{{.ServerVersion}}'
-docker run --rm hello-world" ;;
-      1) T="Arranca Floci y configura AWS"; O="Tener tu AWS de mentira escuchando en localhost:4566."
-         D="docker run -d --name floci -p 127.0.0.1:4566:4566 -p 127.0.0.1:7001:7001 -v /var/run/docker.sock:/var/run/docker.sock -e FLOCI_SERVICES_UI_ENABLED=false floci/floci:latest
+# descarga (si falta) y ejecuta un contenedor de prueba que se borra solo
+docker run --rm hello-world
+TXT
+    ;;
+    1) cat <<'TXT'
+# -d: segundo plano · -p: publica puertos · -v: pasa el socket de Docker
+#   (Floci crea contenedores de verdad) · -e: variables de entorno
+docker run -d --name floci -p 127.0.0.1:4566:4566 -p 127.0.0.1:7001:7001 -v /var/run/docker.sock:/var/run/docker.sock -e FLOCI_SERVICES_UI_ENABLED=false floci/floci:latest
+# ¿está sano?
 curl -s http://localhost:4566/_floci/health
+# credenciales inventadas (en AWS serían tus claves IAM)
 aws configure set aws_access_key_id test
 aws configure set aws_secret_access_key test
 aws configure set region us-east-1
+# el endpoint: la dirección de la API. Esto es lo que hace que use Floci
 aws configure set endpoint_url http://localhost:4566
-aws configure set cli_pager \"\"
-aws sts get-caller-identity" ;;
-      2) T="Tu llave SSH"; O="Crear el par de llaves y guardar la privada con permisos 400."
-         D="mkdir -p ~/awsclase
+# sin paginador, para que los resultados no se abran en 'less'
+aws configure set cli_pager ""
+# ¿quién soy? Debe salir la cuenta 000000000000
+aws sts get-caller-identity
+TXT
+    ;;
+    2) cat <<'TXT'
+# crea la carpeta donde guardarás la llave
+mkdir -p ~/awsclase
+# --query KeyMaterial extrae del JSON solo la clave privada
 aws ec2 create-key-pair --key-name clase --query KeyMaterial --output text > ~/awsclase/clase.pem
+# solo el dueño puede leerla, o SSH se niega a usarla
 chmod 400 ~/awsclase/clase.pem
-ls -l ~/awsclase/clase.pem" ;;
-      3) T="Crea la instancia EC2"; O="Lanzar el servidor y verlo en marcha."
-         D="aws ec2 run-instances --image-id ami-0abcdef1234567891 --instance-type t2.micro --key-name clase
-aws ec2 describe-instances --query \"Reservations[].Instances[].{Estado:State.Name,IP:PublicIpAddress}\" --output table" ;;
-      4) T="Entra por SSH"; O="Conectarte a la instancia y comprobar que es Amazon Linux."
-         D="docker ps --filter name=floci-aws-ec2 --format '{{.Names}}  {{.Ports}}'
+# comprobar que está
+ls -l ~/awsclase/clase.pem
+aws ec2 describe-key-pairs --query 'KeyPairs[].KeyName' --output table
+TXT
+    ;;
+    3) cat <<'TXT'
+# --image-id: la AMI · --instance-type: tamaño · --key-name: con qué llave entras
+aws ec2 run-instances --image-id ami-0abcdef1234567891 --instance-type t2.micro --key-name clase
+# --query filtra el JSON (JMESPath) y --output table lo pone en tabla
+aws ec2 describe-instances --query "Reservations[].Instances[].{Estado:State.Name,IP:PublicIpAddress}" --output table
+TXT
+    ;;
+    4) cat <<'TXT'
+# en qué puerto de tu equipo se publica el 22 de la instancia
+docker ps --filter name=floci-aws-ec2 --format '{{.Names}}  {{.Ports}}'
+# -p puerto · -i la llave privada · usuario root
 ssh -p 2200 -i ~/awsclase/clase.pem root@localhost
-  (dentro: cat /etc/os-release · whoami · exit)" ;;
-      5) T="La base de datos"; O="Crear el PostgreSQL y esperar a que esté disponible."
-         D="aws rds create-db-instance --db-instance-identifier clase-db --engine postgres --db-instance-class db.t3.micro --master-username admin --master-user-password secreto123 --allocated-storage 20
-aws rds describe-db-instances --query \"DBInstances[].{ID:DBInstanceIdentifier,Estado:DBInstanceStatus,Puerto:Endpoint.Port}\" --output table" ;;
-      6) T="Conéctate con psql"; O="Hablar con la base de datos desde tu equipo."
-         D="PGPASSWORD=secreto123 psql -h localhost -p 7001 -U admin -d postgres -c \"SELECT version();\"" ;;
-      7) T="Tu primera tabla"; O="Crear la tabla alumnos, insertar 3 filas y consultarlas."
-         D="PGPASSWORD=secreto123 psql -h localhost -p 7001 -U admin -d postgres
+# dentro prueba: cat /etc/os-release · whoami · exit
+TXT
+    ;;
+    5) cat <<'TXT'
+# --engine postgres · --db-instance-class tamaño · credenciales del admin
+aws rds create-db-instance --db-instance-identifier clase-db --engine postgres --db-instance-class db.t3.micro --master-username admin --master-user-password secreto123 --allocated-storage 20
+# hasta que no diga "available" no acepta conexiones
+aws rds describe-db-instances --query "DBInstances[].{ID:DBInstanceIdentifier,Estado:DBInstanceStatus,Puerto:Endpoint.Port}" --output table
+TXT
+    ;;
+    6) cat <<'TXT'
+# -c ejecuta la consulta y sale · -P pager=off evita el 'less'
+PGPASSWORD=secreto123 psql -h localhost -p 7001 -U admin -d postgres -c "SELECT version();"
+TXT
+    ;;
+    7) cat <<'TXT'
+# abre la consola interactiva (sal con \q)
+PGPASSWORD=secreto123 psql -h localhost -p 7001 -U admin -d postgres
    \pset pager off
    CREATE TABLE alumnos (id SERIAL PRIMARY KEY, nombre VARCHAR(50), nota NUMERIC(4,2));
    INSERT INTO alumnos (nombre, nota) VALUES ('Ana', 8.5), ('Luis', 6.0), ('Marta', 9.25);
    SELECT * FROM alumnos;
-   \q" ;;
-    esac
+   \q
+TXT
+    ;;
+  esac
+}
 
+# ─────────────────────────────────────────────────────────────
+#  Nombre del alumno (va en la entrega)
+# ─────────────────────────────────────────────────────────────
+pedir_nombre() {
+  local n=""
+  if [ -n "${ALUMNO_NOMBRE:-}" ]; then printf '%s' "$ALUMNO_NOMBRE"; return 0; fi
+  printf '\n  %s¿Cómo te llamas?%s ' "$C_BOLD" "$C_RESET"
+  while [ -z "$n" ]; do
+    read -r n </dev/tty || n=""
+    n=$(printf '%s' "$n" | sed 's/[|/\\:*?"<>]//g' | cut -c1-40)
+  done
+  ALUMNO_NOMBRE="$n"
+  ALUMNO="$n"
+  export ALUMNO
+  printf '%s' "$n"
+}
+
+# ─────────────────────────────────────────────────────────────
+#  Guía MANUAL: el alumno escribe, el TUI corrige
+# ─────────────────────────────────────────────────────────────
+guia_manual() {
+  local p b=0 T linea saltar
+  p=$(ruta_practica) || { fallo "No encuentro la práctica (practica/verificar.sh)"; return 1; }
+
+  titulo "Guía manual"
+  printf '  Tú escribes los comandos aquí mismo y yo te corrijo.\n\n'
+  pedir_nombre >/dev/null
+  printf '  Alumno: %s\n' "$ALUMNO_NOMBRE"
+  printf '\n  %sÓrdenes: listo (comprobar) · ayuda (comandos) · saltar · salir%s\n' "$C_DIM" "$C_RESET"
+  pausa
+
+  while [ "$b" -le 7 ]; do
     clear 2>/dev/null || true
-    titulo "Bloque $b — $T"
-    printf '  Objetivo: %s\n\n' "$O"
-    printf '  %sEscribe los comandos aquí. Para terminar: listo%s\n' "$C_DIM" "$C_RESET"
+    titulo "Bloque $b — $(bloque_titulo "$b")"
+    printf '  Objetivo: %s\n\n' "$(bloque_objetivo "$b")"
+    bloque_teoria "$b" | sed 's/^/  /'
+    printf '\n  %sEscribe los comandos aquí. Para terminar: listo%s\n' "$C_DIM" "$C_RESET"
     printf '  %s(ayuda · saltar · salir)%s\n\n' "$C_DIM" "$C_RESET"
 
     saltar=0
@@ -1528,7 +1684,7 @@ aws rds describe-db-instances --query \"DBInstances[].{ID:DBInstanceIdentifier,E
       case "$linea" in
         "") continue ;;
         listo|LISTO|L|ok|hecho|fin) break ;;
-        ayuda|help|'?'|guia) printf '%s\n\n' "$D" | sed 's/^/    /'; continue ;;
+        ayuda|help|'?'|guia|guía) bloque_comandos "$b" | sed 's/^/    /'; printf '\n'; continue ;;
         saltar) saltar=1; break ;;
         salir|exit|q) info "Dejamos la práctica aquí"; return 0 ;;
       esac
@@ -1545,34 +1701,155 @@ aws rds describe-db-instances --query \"DBInstances[].{ID:DBInstanceIdentifier,E
     if verificador --bloque "$b"; then
       ok "Bloque $b superado"
     else
-      if confirmar "¿Repetimos el bloque $b?"; then continue; fi
+      if confirmar "Repetimos el bloque $b"; then continue; fi
       aviso "Queda pendiente; el verificador final te lo dirá"
     fi
     b=$((b+1))
     pausa
   done
 
-  titulo "Bloque 8 — Nota y entrega"
-  info "Puntúo la práctica completa (100 puntos)."
-  pausa
+  titulo "Nota y entrega"
   verificador
-  if confirmar "¿Genero la entrega en practica/entregas/?"; then
+  if confirmar "Genero la entrega"; then
     verificador --guardar
-    ok "Entrega guardada. El profesor la ve con la opción 2 del menú."
+    ok "Entrega guardada como $ALUMNO_NOMBRE"
   fi
-
-  titulo "Bloque 9 — Limpieza (opcional)"
-  printf '%s\n' \
-"  Cuando ya hayas entregado puedes borrar los recursos:" \
-"" \
-"    aws ec2 terminate-instances --instance-ids \$(aws ec2 describe-instances --query \"Reservations[].Instances[].InstanceId\" --output text)" \
-"    aws rds delete-db-instance --db-instance-identifier clase-db --skip-final-snapshot" \
-"    docker rm -f floci" \
-"" \
-"  O desde el menú: opción 3 → Limpiar mi equipo"
-  pausa
-  ok "Fin de la práctica"
 }
+
+# ─────────────────────────────────────────────────────────────
+#  Guía AUTOMÁTICA: lo hace el TUI y lo explica
+# ─────────────────────────────────────────────────────────────
+guia_automatica() {
+  local b
+  ruta_practica >/dev/null || { fallo "No encuentro la práctica"; return 1; }
+
+  titulo "Guía automática"
+  printf '  Te lo hago yo paso a paso, explicando qué hace cada cosa.\n\n'
+  pedir_nombre >/dev/null
+  printf '  Alumno: %s\n' "$ALUMNO_NOMBRE"
+  pausa
+
+  for b in 0 1 2 3 4 5 6 7; do
+    clear 2>/dev/null || true
+    titulo "Bloque $b — $(bloque_titulo "$b")"
+    printf '  Objetivo: %s\n\n' "$(bloque_objetivo "$b")"
+    bloque_teoria "$b" | sed 's/^/  /'
+    printf '\n'
+    info "Esto es lo que se ejecuta:"
+    bloque_comandos "$b" | sed 's/^/    /'
+    printf '\n'
+    case "$b" in
+      0) : ;;
+      1) arrancar_floci ;;
+      2) crear_instancia ;;
+      3) : ;;
+      4) comprobar_instancia_no_interactivo ;;
+      5) crear_base_datos ;;
+      6) consulta_version ;;
+      7) crear_tabla ;;
+    esac
+    echo
+    if verificador --bloque "$b"; then ok "Bloque $b correcto"; fi
+    pausa
+  done
+
+  titulo "Nota y entrega"
+  verificador
+  if confirmar "Genero la entrega"; then
+    verificador --guardar
+    ok "Entrega guardada como $ALUMNO_NOMBRE"
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────
+#  PRÁCTICA sin ayuda: solo el enunciado, tú te apañas
+# ─────────────────────────────────────────────────────────────
+practica_libre() {
+  local linea
+  ruta_practica >/dev/null || { fallo "No encuentro la práctica"; return 1; }
+
+  titulo "Práctica sin ayuda"
+  printf '  Aquí no hay guía ni ayuda: es el examen de la práctica.\n'
+  printf '  Escribe los comandos que necesites. Cuando termines: evaluar\n\n'
+  printf '  Tienes que conseguir:\n'
+  printf '    · Floci sano y credenciales apuntando a él\n'
+  printf '    · Tu llave SSH guardada en ~/awsclase\n'
+  printf '    · Una instancia EC2 en marcha\n'
+  printf '    · Entrar por SSH y ver Amazon Linux\n'
+  printf '    · Una base de datos PostgreSQL disponible\n'
+  printf '    · Una tabla con al menos 3 filas\n\n'
+  printf '  %sEl enunciado completo está en practica/PRACTICA.md%s\n' "$C_DIM" "$C_RESET"
+  pedir_nombre >/dev/null
+  printf '\n  Alumno: %s\n\n' "$ALUMNO_NOMBRE"
+
+  while true; do
+    printf '  %s$%s ' "$C_GREEN" "$C_RESET"
+    read -r linea </dev/tty || linea=""
+    case "$linea" in
+      "") continue ;;
+      evaluar|listo|fin|entregar) break ;;
+      salir|exit|q) info "Dejamos la práctica aquí"; return 0 ;;
+      ayuda|help|'?'|guia|guía) aviso "En la práctica no hay ayuda (usa la guía para aprender)"; continue ;;
+    esac
+    printf '\n'
+    ( eval "$linea" ) 2>&1 | sed 's/^/    /'
+    printf '\n'
+  done
+
+  echo
+  titulo "Evaluación"
+  verificador
+  if confirmar "Genero la entrega"; then
+    verificador --guardar
+    ok "Entrega guardada como $ALUMNO_NOMBRE"
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────
+#  Menús del alumno
+# ─────────────────────────────────────────────────────────────
+menu_guia() {
+  local o
+  while true; do
+    o=$(tui_menu "Guía para aprender" \
+"  Dos formas de aprender lo mismo:
+
+    AUTOMÁTICA → el TUI lo hace y te explica qué es cada cosa.
+    MANUAL     → lo escribes tú y te va corrigiendo." \
+      1 "Guía automática (lo hace el TUI y te explica)" \
+      2 "Guía manual (lo escribes tú y te corrige)" \
+      0 "Volver" ) || return 0
+    case "$o" in
+      1) guia_automatica; pausa ;;
+      2) guia_manual; pausa ;;
+      0|"") return 0 ;;
+    esac
+  done
+}
+
+empezar_alumno() {
+  local o
+  while true; do
+    o=$(tui_menu "Empezar" \
+"  El orden recomendado: 1 → 2 → 3.
+
+    1. Comprobación: deja el equipo listo (instala lo que falte).
+    2. Guía: aprendes con la teoría y las explicaciones.
+    3. Práctica sin ayuda: lo haces tú y te puntúo." \
+      1 "Comprobación del equipo (dejarlo listo)" \
+      2 "Guía (aprender paso a paso)" \
+      3 "Práctica sin ayuda (demostrar lo aprendido)" \
+      0 "Volver" ) || return 0
+    case "$o" in
+      1) iniciar_practica; pausa ;;
+      2) menu_guia ;;
+      3) practica_libre; pausa ;;
+      0|"") return 0 ;;
+    esac
+  done
+}
+
+practica_alumno() { guia_manual; }
 
 autoevaluar_practica() {
   titulo "Autoevaluar la práctica"
@@ -1763,6 +2040,8 @@ preparar_paquete() {
 
 nota_y_entregar() {
   titulo "Mi nota"
+  pedir_nombre >/dev/null
+  printf '  Alumno: %s\n\n' "$ALUMNO_NOMBRE"
   verificador
   printf '
 '
@@ -1841,18 +2120,18 @@ menu_alumno() {
   local opcion
   tui_pantalla
   opcion=$(tui_menu "ALUMNO" \
-"  Dos pasos: haces la práctica y la entregas.
+"  Tres pasos: comprobar, aprender y demostrar.
 
   Estado:
     Docker:     $(if docker_ok; then echo "funcionando"; elif hay_comando docker; then echo "instalado pero sin responder"; else echo "sin instalar"; fi)
     Instancia:  ${IP_INSTANCIA:-ninguna}" \
-     1 "Hacer la práctica (te guía y te corrige)" \
+     1 "Empezar (comprobación · guía · práctica)" \
      2 "Mi nota y entregar" \
      3 "Ayuda" \
      0 "Salir" ) || return 1
 
   case "$opcion" in
-    1) iniciar_practica; pausa ;;
+    1) empezar_alumno ;;
     2) nota_y_entregar; pausa ;;
     3) ayuda_alumno ;;
     0|"") return 1 ;;

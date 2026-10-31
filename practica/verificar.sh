@@ -310,7 +310,7 @@ chk_tabla() {
 
 # ── ejecución ──────────────────────────────────────────────────────
 INICIO=$(date '+%Y-%m-%d %H:%M')
-USUARIO=$(id -un)
+USUARIO="${ALUMNO:-$(id -un)}"   # el TUI pasa el nombre del alumno
 
 if [ "$SOLO_JSON" = 0 ]; then
   echo
