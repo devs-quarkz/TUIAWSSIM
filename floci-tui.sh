@@ -1052,7 +1052,7 @@ desinstalar_docker() {
   aviso "No se puede deshacer."
   printf '\n' >&2
 
-  confirmar "¿Desinstalo Docker?" || { info "Cancelado"; return 0; }
+  confirmar "Desinstalo Docker" || { info "Cancelado"; return 0; }
   quitar_docker_ahora || { fallo "No pude desinstalarlo del todo"; return 1; }
 
   if hay_comando docker || [ -d /Applications/Docker.app ]; then
@@ -1139,7 +1139,7 @@ limpiar_interactivo() {
   [ -z "$(printf '%s' "$sel" | tr -d ' ')" ] && { info "No has marcado nada"; return 0; }
 
   printf '\n  Vas a quitar:%s\n\n' "$sel" >&2
-  if ! confirmar "¿Seguro?"; then info "Cancelado"; return 0; fi
+  if ! confirmar "Seguro"; then info "Cancelado"; return 0; fi
 
   case " $sel " in
     *" floci "*)
@@ -1304,7 +1304,7 @@ comprobar_equipo() {
 # ─────────────────────────────────────────────────────────────
 flujo_completo() {
   comprobar_equipo
-  confirmar "¿Instalo lo que falte y hago toda la práctica?" || return 0
+  confirmar "Instalo lo que falte y hago toda la práctica" || return 0
 
   instalar_docker        || return 1
   instalar_aws_cli       || return 1
@@ -1318,10 +1318,10 @@ flujo_completo() {
 
   if [ "$AUTO" = 0 ]; then
     printf '\n'
-    if confirmar "¿Quieres entrar por SSH en la instancia ahora?"; then
+    if confirmar "Quieres entrar por SSH en la instancia ahora"; then
       entrar_en_instancia || true
     fi
-    if confirmar "¿Quieres abrir la consola de psql?"; then
+    if confirmar "Quieres abrir la consola de psql"; then
       consola_psql || true
     fi
   else
@@ -1522,7 +1522,7 @@ aws rds describe-db-instances --query \"DBInstances[].{ID:DBInstanceIdentifier,E
     if verificador --bloque "$b"; then
       ok "Bloque $b superado"
     else
-      if confirmar "¿Repetimos el bloque $b?"; then continue; fi
+      if confirmar "Repetimos el bloque $b"; then continue; fi
       aviso "Seguimos, pero el bloque $b queda pendiente"
     fi
     b=$((b+1))
@@ -1532,7 +1532,7 @@ aws rds describe-db-instances --query \"DBInstances[].{ID:DBInstanceIdentifier,E
   info "Voy a puntuar la práctica completa (100 puntos)."
   pausa
   verificador
-  if confirmar "¿Genero la entrega en practica/entregas/?"; then
+  if confirmar "Genero la entrega en practica/entregas/"; then
     verificador --guardar
     ok "Entrega guardada. El profesor la ve con la opción 13 del menú."
   else
@@ -1561,7 +1561,7 @@ autoevaluar_practica() {
 
 entregar_practica() {
   titulo "Entregar la práctica"
-  confirmar "¿Genero tu entrega en practica/entregas/?" || { info "Cancelado"; return 0; }
+  confirmar "Genero tu entrega en practica/entregas/" || { info "Cancelado"; return 0; }
   verificador --guardar
 }
 
@@ -1625,19 +1625,105 @@ cambiar_rol() {
   elegir_rol || guardar_rol alumno
 }
 
+# Se detecta por el puerto: pgrep no es fiable igual en Linux que en macOS
+pid_servidor() {
+  local p
+  p=$(lsof -nP -iTCP:8000 -sTCP:LISTEN -t 2>/dev/null | head -1)
+  [ -z "$p" ] && p=$(lsof -nP -iTCP:8000 -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $2; exit}')
+  [ -z "$p" ] && p=$(ss -ltnp 2>/dev/null | grep ":8000 " | sed 's/.*pid=\([0-9]*\).*/\1/' | head -1)
+  [ -z "$p" ] && p=$(pgrep -f 'http\.server' 2>/dev/null | head -1)
+  printf '%s' "$p"
+}
+
+servidor_activo() {
+  [ -n "$(pid_servidor)" ] && return 0
+  pgrep -f "http\.server" >/dev/null 2>&1
+}
+
+url_servidor() {
+  local ip
+  ip=$(grep -m1 "Este equipo:" /tmp/servir.log 2>/dev/null | sed 's|.*http://||; s|:8000.*||')
+  if [ -z "$ip" ]; then
+    case "$(uname -s)" in
+      Darwin) ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null) ;;
+      *)      ip=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}') ;;
+    esac
+  fi
+  if [ -n "$ip" ]; then printf 'http://%s:8000' "$ip"; else printf 'http://localhost:8000'; fi
+}
+
 servir_clase() {
   titulo "Servir la clase"
-  if pgrep -f "^python3 -m http.server" >/dev/null 2>&1; then
-    ok "El servidor ya está corriendo en el puerto 8000"
+
+  if servidor_activo; then
+    ok "El servidor ya estaba corriendo"
   else
     info "Levantando el servidor en segundo plano…"
-    ( setsid ./servir.sh 8000 > /tmp/servir.log 2>&1 < /dev/null & ) 2>/dev/null
+    if hay_comando setsid; then
+      ( setsid ./servir.sh 8000 > /tmp/servir.log 2>&1 < /dev/null & ) 2>/dev/null
+    else
+      ( nohup ./servir.sh 8000 > /tmp/servir.log 2>&1 < /dev/null & ) 2>/dev/null
+    fi
     sleep 5
   fi
-  grep -E "Este equipo|Instalador|Pásale" /tmp/servir.log 2>/dev/null | sed 's/^/  /'
+
+  if ! servidor_activo; then
+    fallo "El servidor no ha arrancado"
+    info "Mira /tmp/servir.log o lánzalo a mano: ./servir.sh"
+    return 1
+  fi
+
+  local url paquete entregas pid
+  url=$(url_servidor)
+  pid=$(pid_servidor)
+  paquete="no preparado"
+  [ -f "$DIR_SCRIPT/offline.tar.gz" ] && paquete="$(du -h "$DIR_SCRIPT/offline.tar.gz" 2>/dev/null | cut -f1)"
+  entregas=$(ls -1 "$(ruta_practica 2>/dev/null)/entregas" 2>/dev/null | wc -l | tr -d ' ')
+
   printf '
 '
-  info "Para pararlo: pkill -f 'http.server'"
+  ok "Servidor ACTIVO (pid $pid) en el puerto 8000"
+  printf '      %-12s %s
+' "Dirección:" "$url"
+  printf '      %-12s %s
+' "Paquete:" "$paquete"
+  printf '      %-12s %s
+' "Entregas:" "$entregas"
+  printf '
+'
+  printf '  %sPásale esto a tus alumnos%s (tienen que estar en tu misma red):
+
+' "$C_BOLD" "$C_RESET"
+  printf '    curl -fsSL %s/instalar.sh | bash -s -- --servidor %s
+
+' "$url" "$url"
+  info "Sigue corriendo aunque salgas del TUI."
+  info "Para pararlo: opción 5 del menú (o: pkill -f 'http.server')"
+}
+
+parar_servidor() {
+  titulo "Parar el servidor de clase"
+  if ! servidor_activo; then
+    aviso "El servidor no está corriendo"
+    return 0
+  fi
+  local pid url
+  pid=$(pid_servidor)
+  url=$(url_servidor)
+  info "Servidor activo (pid $pid) en $url"
+  confirmar "Lo paro" || { info "Sigue corriendo"; return 0; }
+  kill "$pid" 2>/dev/null
+  sleep 2
+  if servidor_activo; then
+    kill -9 "$pid" 2>/dev/null
+    sleep 1
+  fi
+  if servidor_activo; then
+    fallo "No pude pararlo (pid $pid)"
+    return 1
+  fi
+  ok "Servidor parado"
+  info "Los alumnos ya no podrán descargar hasta que lo vuelvas a levantar."
 }
 
 preparar_paquete() {
@@ -1648,7 +1734,7 @@ preparar_paquete() {
   fi
   info "Descarga los .deb de Docker y psql, la AWS CLI y guarda las 4 imágenes."
   info "Tarda unos minutos y necesita internet (solo esta vez)."
-  confirmar "¿Lo preparo ahora?" || return 0
+  confirmar "Lo preparo ahora" || return 0
   ( cd "$DIR_SCRIPT" && SUDO_PASS="${SUDO_PASS:-}" ./preparar-offline.sh )
 }
 
@@ -1657,7 +1743,7 @@ nota_y_entregar() {
   verificador
   printf '
 '
-  if confirmar "¿Genero ya la entrega?"; then
+  if confirmar "Genero ya la entrega"; then
     verificador --guardar
   else
     info "Puedes entregarla luego desde la opción 2 del menú."
@@ -1752,26 +1838,33 @@ menu_alumno() {
 }
 
 menu_profesor() {
-  local opcion
+  local opcion items
   tui_pantalla
+
+  items=(1 "Preparar y servir la clase"
+         2 "Ver entregas"
+         3 "Probar este equipo (demo)"
+         4 "Herramientas")
+  if servidor_activo; then
+    items+=(5 "Parar el servidor de clase")
+  fi
+  items+=(0 "Salir")
+
   opcion=$(tui_menu "PROFESOR" \
 "  Prepara la clase, sírvela y revisa las entregas.
 
   Estado:
-    Paquete:     $(if [ -f "$DIR_SCRIPT/offline.tar.gz" ]; then echo "listo"; elif [ -d "$DIR_SCRIPT/offline" ]; then echo "en offline/"; else echo "no preparado"; fi)
-    Servidor:    $(if pgrep -f '^python3 -m http.server' >/dev/null 2>&1; then echo "activo (:8000)"; else echo "parado"; fi)
+    Paquete:     $(if [ -f "$DIR_SCRIPT/offline.tar.gz" ]; then echo "listo ($(du -h "$DIR_SCRIPT/offline.tar.gz" 2>/dev/null | cut -f1))"; elif [ -d "$DIR_SCRIPT/offline" ]; then echo "en offline/"; else echo "no preparado"; fi)
+    Servidor:    $(if servidor_activo; then echo "ACTIVO $(url_servidor)"; else echo "parado"; fi)
     Entregas:    $(ls -1 "$(ruta_practica 2>/dev/null)/entregas" 2>/dev/null | wc -l | tr -d ' ')" \
-     1 "Preparar y servir la clase" \
-     2 "Ver entregas" \
-     3 "Probar este equipo (demo)" \
-     4 "Herramientas" \
-     0 "Salir" ) || return 1
+     "${items[@]}" ) || return 1
 
   case "$opcion" in
     1) preparar_y_servir; pausa ;;
     2) ver_entregas; pausa ;;
     3) flujo_completo; pausa ;;
     4) herramientas_profesor ;;
+    5) parar_servidor; pausa ;;
     0|"") return 1 ;;
   esac
   return 0
