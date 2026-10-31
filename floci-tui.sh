@@ -54,6 +54,7 @@ DESINSTALAR_DOCKER=0
 FORZAR_SIN_INTERNET=0
 SOLO_AUTOEVALUAR=0
 SOLO_ENTREGAR=0
+ROL_FORZADO=""
 BUNDLE_ACTUAL=""
 EXPORTAR=""
 CARGAR=""
@@ -1584,68 +1585,177 @@ ver_entregas() {
   printf '\n  %s entrega(s) · %s\n' "$n" "$p/entregas"
 }
 
-menu_principal() {
+# ─────────────────────────────────────────────────────────────
+#  Roles: el TUI se adapta a alumno o profesor
+# ─────────────────────────────────────────────────────────────
+ARCHIVO_ROL="$HOME/.tuiawssim-rol"
+
+cargar_rol() {
+  ROL=""
+  [ -f "$ARCHIVO_ROL" ] && ROL=$(cat "$ARCHIVO_ROL" 2>/dev/null)
+}
+
+guardar_rol() {
+  ROL="$1"
+  printf '%s
+' "$ROL" > "$ARCHIVO_ROL" 2>/dev/null || true
+}
+
+elegir_rol() {
+  local r
+  r=$(tui_menu "¿Quién eres?" \
+"  El TUI cambia según lo que necesites.
+
+    ALUMNO   → hacer la práctica y entregarla.
+    PROFESOR → preparar la clase y revisar entregas.
+
+  Podrás cambiarlo cuando quieras desde el menú." \
+     1 "ALUMNO  — voy a hacer la práctica" \
+     2 "PROFESOR — preparo la clase" \
+     0 "Salir" ) || return 1
+  case "$r" in
+    1) guardar_rol alumno ;;
+    2) guardar_rol profesor ;;
+    *) return 1 ;;
+  esac
+}
+
+cambiar_rol() {
+  rm -f "$ARCHIVO_ROL" 2>/dev/null
+  elegir_rol || guardar_rol alumno
+}
+
+servir_clase() {
+  titulo "Servir la clase"
+  if pgrep -f "^python3 -m http.server" >/dev/null 2>&1; then
+    ok "El servidor ya está corriendo en el puerto 8000"
+  else
+    info "Levantando el servidor en segundo plano…"
+    ( setsid ./servir.sh 8000 > /tmp/servir.log 2>&1 < /dev/null & ) 2>/dev/null
+    sleep 5
+  fi
+  grep -E "Este equipo|Instalador|Pásale" /tmp/servir.log 2>/dev/null | sed 's/^/  /'
+  printf '
+'
+  info "Para pararlo: pkill -f 'http.server'"
+}
+
+preparar_paquete() {
+  titulo "Paquete para clase sin internet"
+  if [ ! -x "$DIR_SCRIPT/preparar-offline.sh" ]; then
+    fallo "No encuentro preparar-offline.sh"
+    return 1
+  fi
+  info "Descarga los .deb de Docker y psql, la AWS CLI y guarda las 4 imágenes."
+  info "Tarda unos minutos y necesita internet (solo esta vez)."
+  confirmar "¿Lo preparo ahora?" || return 0
+  ( cd "$DIR_SCRIPT" && SUDO_PASS="${SUDO_PASS:-}" ./preparar-offline.sh )
+}
+
+menu_alumno() {
   local opcion
+  tui_pantalla
+  opcion=$(tui_menu "Menú del ALUMNO" \
+"  Tú haces la práctica. El TUI te corrige.
+
+  Estado:
+    Docker:     $(if docker_ok; then echo "funcionando"; elif hay_comando docker; then echo "instalado pero sin responder"; else echo "sin instalar"; fi)
+    Instancia:  ${IP_INSTANCIA:-ninguna}
+    Puerto DB:  ${PUERTO_DB}" \
+     1 "INICIAR LA PRÁCTICA (comprueba, instala lo que falte y empieza)" \
+     2 "Autoevaluar mi práctica (nota /100)" \
+     3 "Entregar la práctica" \
+     4 "Ver mi entrega" \
+     5 "Diagnóstico del equipo (para pedir ayuda)" \
+     6 "Entrar por SSH en la instancia" \
+     7 "Consultar y crear tablas con SQL" \
+     8 "Limpiar mi equipo (contenedores e imágenes de la práctica)" \
+     9 "Ver el log" \
+     r "Cambiar de rol (alumno / profesor)" \
+     0 "Salir" ) || return 1
+
+  case "$opcion" in
+     1) iniciar_practica; pausa ;;
+     2) autoevaluar_practica; pausa ;;
+     3) entregar_practica; pausa ;;
+     4) ver_entregas; pausa ;;
+     5) comprobar_equipo; pausa ;;
+     6) entrar_en_instancia; pausa ;;
+     7) consulta_version && crear_tabla && consola_psql; pausa ;;
+     8) limpiar_interactivo; pausa ;;
+     9) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
+     r|R) cambiar_rol ;;
+     0|"") return 1 ;;
+     *) ;;
+  esac
+  return 0
+}
+
+menu_profesor() {
+  local opcion
+  tui_pantalla
+  opcion=$(tui_menu "Menú del PROFESOR" \
+"  Preparar la clase y revisar el trabajo de los alumnos.
+
+  Estado:
+    Docker:      $(if docker_ok; then echo "funcionando"; elif hay_comando docker; then echo "instalado sin responder"; else echo "sin instalar"; fi)
+    Paquete:     $(if [ -f "$DIR_SCRIPT/offline.tar.gz" ]; then echo "listo"; elif [ -d "$DIR_SCRIPT/offline" ]; then echo "en offline/"; else echo "no preparado"; fi)
+    Servidor:    $(if pgrep -f '^python3 -m http.server' >/dev/null 2>&1; then echo "activo (:8000)"; else echo "parado"; fi)
+    Entregas:    $(ls -1 "$(ruta_practica 2>/dev/null)/entregas" 2>/dev/null | wc -l | tr -d ' ')" \
+     1 "Preparar el paquete para clase SIN internet" \
+     2 "Servir la clase ahora (levantar el servidor)" \
+     3 "Demo automática (probar que este equipo funciona)" \
+     4 "Exportar imágenes para llevar en USB" \
+     5 "Ver entregas recibidas" \
+     6 "Diagnóstico del equipo" \
+     7 "Instalar Docker, AWS CLI y psql" \
+     8 "Autoevaluar este equipo (nota /100)" \
+     9 "Limpiar (elegir qué quitar)" \
+     d "Desinstalar Docker" \
+    10 "Ver el log" \
+     r "Cambiar de rol (alumno / profesor)" \
+     0 "Salir" ) || return 1
+
+  case "$opcion" in
+     1) preparar_paquete; pausa ;;
+     2) servir_clase; pausa ;;
+     3) flujo_completo; pausa ;;
+     4) exportar_imagenes; pausa ;;
+     5) ver_entregas; pausa ;;
+     6) comprobar_equipo; pausa ;;
+     7) instalar_docker && instalar_aws_cli && instalar_psql; pausa ;;
+     8) autoevaluar_practica; pausa ;;
+     9) limpiar_interactivo; pausa ;;
+     d|D) desinstalar_docker; pausa ;;
+    10) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
+     r|R) cambiar_rol ;;
+     0|"") return 1 ;;
+     *) ;;
+  esac
+  return 0
+}
+
+menu_principal() {
   if [ ! -t 1 ]; then
     aviso "No hay una terminal interactiva (¿lo estás lanzando desde un script?)."
     info "Usa el modo automático:  ./floci-tui.sh --auto"
     info "O el diagnóstico:        ./floci-tui.sh --comprobar"
     return 1
   fi
+  if [ -n "${ROL_FORZADO:-}" ]; then
+    guardar_rol "$ROL_FORZADO"
+  else
+    cargar_rol
+    if [ -z "$ROL" ]; then elegir_rol || return 0; fi
+  fi
   while true; do
-    tui_pantalla
-    # El estado resumido debajo del banner
-    if [ -n "$IR_INSTANCIA" ] 2>/dev/null; then :; fi
-    opcion=$(tui_menu "Menú principal" \
-"  Elige qué hacer. Para la práctica del alumno: la opción 1.
-
-  Estado actual:
-    Docker:     $(if docker_ok; then echo "funcionando"; elif hay_comando docker; then echo "instalado pero sin responder"; else echo "sin instalar"; fi)
-    Instancia:  ${IP_INSTANCIA:-ninguna}
-    Puerto DB:  ${PUERTO_DB}" \
-      1 "INICIAR LA PRÁCTICA (comprueba e instala lo que falte y empieza)" \
-      2 "Autoevaluar la práctica (nota /100)" \
-      3 "Entregar la práctica" \
-      4 "Ver entregas (profesor)" \
-      5 "Modo profesor: demo automática (hace todo solo)" \
-      6 "Diagnóstico del equipo" \
-      7 "Limpiar (elige qué quitar, incluido Docker)" \
-      8 "Desinstalar Docker (con confirmación)" \
-      9 "Exportar imágenes para clase sin internet (profesor)" \
-     10 "Ver el log" \
-      x "──────────  avanzado: un paso a mano  ──────────" \
-     11 "Instalar Docker, AWS CLI y psql" \
-     12 "Preparar las imágenes" \
-     13 "Arrancar Floci y configurar AWS" \
-     14 "Crear la instancia EC2" \
-     15 "Entrar por SSH en la instancia" \
-     16 "Crear la base de datos" \
-     17 "Consultar y crear tablas con SQL" \
-      0 "Salir" ) || break
-
-    case "$opcion" in
-      1) iniciar_practica; pausa ;;
-      2) autoevaluar_practica; pausa ;;
-      3) entregar_practica; pausa ;;
-      4) ver_entregas; pausa ;;
-      5) flujo_completo; pausa ;;
-      6) comprobar_equipo; pausa ;;
-      7) limpiar_interactivo; pausa ;;
-      8) desinstalar_docker; pausa ;;
-      9) exportar_imagenes; pausa ;;
-     10) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
-      x|X) : ;;
-     11) instalar_docker && instalar_aws_cli && instalar_psql; pausa ;;
-     12) preparar_imagenes; pausa ;;
-     13) arrancar_floci; pausa ;;
-     14) crear_instancia; pausa ;;
-     15) entrar_en_instancia; pausa ;;
-     16) crear_base_datos; pausa ;;
-     17) consulta_version && crear_tabla && consola_psql; pausa ;;
-      0) break ;;
-      *) ;;
-    esac
+    if [ "$ROL" = "profesor" ]; then
+      menu_profesor || break
+    else
+      menu_alumno || break
+    fi
   done
+  return 0
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -1663,6 +1773,8 @@ floci-tui.sh — instalador y guía de la práctica de Floci
   ./floci-tui.sh --cargar <f>       Carga ese fichero de imágenes (alumno)
   ./floci-tui.sh --desinstalar-docker   Quita Docker sin preguntar (cuidado)
   ./floci-tui.sh --sin-internet     No usa la red: instala del paquete offline
+  ./floci-tui.sh --alumno           Entra directo con el rol de alumno
+  ./floci-tui.sh --profesor         Entra directo con el rol de profesor
 
 La práctica del alumno (en el menú, opción 1):
   practica/PRACTICA.md              Enunciado: 10 bloques con ejercicios y 20 preguntas
@@ -1704,6 +1816,8 @@ main() {
       --cargar)    CARGAR="$2"; shift ;;
       --desinstalar-docker) DESINSTALAR_DOCKER=1 ;;
       --sin-internet) FORZAR_SIN_INTERNET=1 ;;
+      --alumno)       ROL_FORZADO=alumno ;;
+      --profesor)     ROL_FORZADO=profesor ;;
       --autoevaluar)  SOLO_AUTOEVALUAR=1 ;;
       --entregar)     SOLO_ENTREGAR=1 ;;
       --limpiar)  LIMPIAR=1 ;;

@@ -144,6 +144,46 @@ los alumnos **ni descargan 1 GB ni ejecutan el `docker build`**.
 
 ---
 
+## Roles: alumno y profesor
+
+Al arrancar, el TUI pregunta **quién eres** (y lo recuerda en `~/.tuiawssim-rol`;
+se cambia con la opción `r` o con `--alumno` / `--profesor`).
+
+**Menú del ALUMNO** — solo lo que necesita para hacer la práctica:
+
+| Opción | |
+|---|---|
+| 1 | INICIAR LA PRÁCTICA (comprueba, instala lo que falte y empieza) |
+| 2 | Autoevaluar mi práctica (nota /100) |
+| 3 | Entregar la práctica |
+| 4 | Ver mi entrega |
+| 5 | Diagnóstico del equipo (para pedir ayuda) |
+| 6 | Entrar por SSH en la instancia |
+| 7 | Consultar y crear tablas con SQL |
+| 8 | Limpiar mi equipo (contenedores e imágenes de la práctica) |
+| 9 | Ver el log |
+| r | Cambiar de rol |
+
+**Menú del PROFESOR** — preparar la clase y revisar:
+
+| Opción | |
+|---|---|
+| 1 | Preparar el paquete para clase SIN internet |
+| 2 | Servir la clase ahora (levantar el servidor) |
+| 3 | Demo automática (probar que este equipo funciona) |
+| 4 | Exportar imágenes para llevar en USB |
+| 5 | Ver entregas recibidas |
+| 6 | Diagnóstico del equipo |
+| 7 | Instalar Docker, AWS CLI y psql |
+| 8 | Autoevaluar este equipo |
+| 9 | Limpiar (elegir qué quitar) |
+| d | Desinstalar Docker |
+| 10 | Ver el log |
+| r | Cambiar de rol |
+
+Nada de «desinstalar Docker» o «servir la clase» aparece en el menú del alumno,
+y el profesor no tiene que ver «hacer la práctica».
+
 ## La práctica del alumno
 
 El TUI tiene **dos modos**:
