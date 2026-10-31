@@ -13,6 +13,12 @@ set -o pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 CLAVE="$HOME/awsclase/clase.pem"
+# El alumno puede llamar al fichero como quiera: vale cualquier .pem suyo
+if [ ! -s "$CLAVE" ]; then
+  for _c in "$HOME"/awsclase/*.pem "$HOME"/*.pem; do
+    [ -s "$_c" ] && { CLAVE="$_c"; break; }
+  done
+fi
 IMG_BASE="public.ecr.aws/amazonlinux/amazonlinux:2023"
 PUERTO_FLOCI=4566
 PUERTO_DB=7001
@@ -77,8 +83,22 @@ AWSQ() {
   else aws --endpoint-url "http://localhost:$PUERTO_FLOCI" "$@"; fi
 }
 
+# El alumno puede haber publicado la base de datos en otro puerto: se pregunta a
+# la API cuál es el endpoint real.
+PUERTO_DB_REAL=""
+puerto_db() {
+  [ -n "$PUERTO_DB_REAL" ] && { printf '%s' "$PUERTO_DB_REAL"; return 0; }
+  local p
+  p=$(AWSQ rds describe-db-instances \
+        --query "DBInstances[?DBInstanceStatus=='available'].Endpoint.Port" \
+        --output text 2>/dev/null | awk 'NF{print $1; exit}')
+  case "$p" in ''|None) p="$PUERTO_DB" ;; esac
+  PUERTO_DB_REAL="$p"
+  printf '%s' "$p"
+}
+
 psqlq() {
-  PGPASSWORD="$DB_PASS" psql -P pager=off -t -A -h localhost -p "$PUERTO_DB" \
+  PGPASSWORD="$DB_PASS" psql -P pager=off -t -A -h localhost -p "$(puerto_db)" \
     -U "$DB_USER" -d postgres -c "$1" 2>/dev/null
 }
 
@@ -229,14 +249,20 @@ chk_ssh() {
 
 chk_rds() {
   hay aws || { DETALLE="la AWS CLI no está instalada"; return 1; }
-  local estado
-  estado=$(AWSQ rds describe-db-instances --db-instance-identifier "$DB_ID" \
-    --query 'DBInstances[0].DBInstanceStatus' --output text 2>/dev/null | awk '{print $1}')
+  local lista id estado
+  lista=$(AWSQ rds describe-db-instances \
+            --query "DBInstances[].[DBInstanceIdentifier,DBInstanceStatus]" --output text 2>/dev/null)
+  id=$(printf '%s\n' "$lista" | awk -v d="$DB_ID" '$1==d{print $1; exit}')
+  [ -z "$id" ] && id=$(printf '%s\n' "$lista" | awk 'NF{print $1; exit}')
+  if [ -z "$id" ]; then
+    DETALLE="no hay ninguna base de datos creada"
+    return 1
+  fi
+  estado=$(printf '%s\n' "$lista" | awk -v i="$id" '$1==i{print $2; exit}')
   case "$estado" in
-    available)  DETALLE="base de datos disponible"; return 0 ;;
-    creating)   DETALLE="todavía creándose: espera y repite"; return 1 ;;
-    "")         DETALLE="no existe la base de datos $DB_ID"; return 1 ;;
-    *)          DETALLE="estado: $estado"; return 1 ;;
+    available) DETALLE="base de datos '$id' disponible"; return 0 ;;
+    creating)  DETALLE="'$id' todavía creándose: espera y repite"; return 1 ;;
+    *)         DETALLE="'$id' en estado ${estado:-?}"; return 1 ;;
   esac
 }
 
@@ -264,8 +290,21 @@ chk_tabla() {
     DETALLE="tabla alumnos con $n filas"
     return 0
   fi
-  PUNTOS_PARCIAL=$(( 20 * n / 3 ))
-  DETALLE="la tabla tiene $n filas (hacen falta 3)"
+  # ¿Hay otra tabla con datos? El alumno pudo llamarla de otra forma
+  local t c
+  for t in $(psqlq "SELECT tablename FROM pg_tables WHERE schemaname='public'" | tr -d ' '); do
+    c=$(psqlq "SELECT COUNT(*) FROM \"$t\"" | head -1 | tr -d '[:space:]')
+    if [ -n "$c" ] && printf '%s' "$c" | grep -qE '^[0-9]+$' && [ "$c" -ge 3 ]; then
+      DETALLE="tabla '$t' con $c filas (el enunciado pedía 'alumnos')"
+      return 0
+    fi
+  done
+  if [ -n "$n" ] && printf '%s' "$n" | grep -qE '^[0-9]+$' && [ "$n" -gt 0 ]; then
+    PUNTOS_PARCIAL=$(( 20 * n / 3 ))
+    DETALLE="la tabla alumnos tiene $n filas (hacen falta 3)"
+    return 1
+  fi
+  DETALLE="no hay ninguna tabla con datos"
   return 1
 }
 

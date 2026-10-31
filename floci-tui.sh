@@ -1407,6 +1407,50 @@ verificador() {
   "$p/verificar.sh" "$@"
 }
 
+# Una sola entrada para el alumno: comprueba, instala lo que falte y empieza.
+iniciar_practica() {
+  titulo "Iniciar la práctica"
+
+  printf '%s\n' \
+"  Antes de empezar compruebo tu equipo y dejo listo lo necesario." \
+"  Si falta algo (Docker, AWS CLI, psql, imágenes) te lo instalo yo." \
+"" \
+"  Después empieza la práctica de verdad: los comandos los escribes TÚ."
+  pausa
+
+  comprobar_equipo
+
+  if ! docker_ok; then
+    info "Falta Docker: lo instalo"
+    instalar_docker || { fallo "Sin Docker no se puede seguir"; return 1; }
+  else
+    ok "Docker listo"
+  fi
+
+  if ! aws_ok; then
+    info "Falta la AWS CLI: la instalo"
+    instalar_aws_cli || { fallo "Sin AWS CLI no se puede seguir"; return 1; }
+  else
+    ok "AWS CLI lista"
+  fi
+
+  if ! psql_ok; then
+    info "Falta psql: lo instalo"
+    instalar_psql || { fallo "Sin psql no se puede seguir"; return 1; }
+  else
+    ok "psql listo"
+  fi
+
+  preparar_imagenes || { fallo "Faltan las imágenes de Docker"; return 1; }
+
+  titulo "Todo listo para empezar"
+  ok "Docker, AWS CLI, psql e imágenes preparados"
+  info "Ahora la práctica: lee cada bloque, escribe los comandos y pulsa ENTER."
+  pausa
+
+  practica_alumno
+}
+
 practica_alumno() {
   local p b=0 T D
   p=$(ruta_practica) || { fallo "No encuentro la práctica (practica/verificar.sh)"; return 1; }
@@ -1553,49 +1597,51 @@ menu_principal() {
     # El estado resumido debajo del banner
     if [ -n "$IR_INSTANCIA" ] 2>/dev/null; then :; fi
     opcion=$(tui_menu "Menú principal" \
-"  Elige qué hacer. Lo más fácil: la opción 1.
+"  Elige qué hacer. Para la práctica del alumno: la opción 1.
 
   Estado actual:
     Docker:     $(if docker_ok; then echo "funcionando"; elif hay_comando docker; then echo "instalado pero sin responder"; else echo "sin instalar"; fi)
     Instancia:  ${IP_INSTANCIA:-ninguna}
     Puerto DB:  ${PUERTO_DB}" \
-      1 "ALUMNO: la práctica paso a paso (TÚ escribes los comandos)" \
-      2 "PROFESOR: demo automática (instala y hace todo)" \
-      3 "Comprobar el equipo" \
-      4 "Instalar Docker, AWS CLI y psql" \
-      5 "Preparar las imágenes" \
-      6 "Arrancar Floci y configurar AWS" \
-      7 "Crear la instancia EC2" \
-      8 "Entrar por SSH en la instancia" \
-      9 "Crear la base de datos" \
-     10 "Consultar y crear tablas con SQL" \
-     11 "Autoevaluar la práctica (nota /100)" \
-     12 "Entregar la práctica" \
-     13 "Ver entregas (profesor)" \
-     14 "Limpiar (elige qué quitar, incluido Docker)" \
-     15 "Desinstalar Docker (con confirmación)" \
-     16 "Exportar imágenes para clase sin internet (profesor)" \
-     17 "Ver el log" \
+      1 "INICIAR LA PRÁCTICA (comprueba e instala lo que falte y empieza)" \
+      2 "Autoevaluar la práctica (nota /100)" \
+      3 "Entregar la práctica" \
+      4 "Ver entregas (profesor)" \
+      5 "Modo profesor: demo automática (hace todo solo)" \
+      6 "Diagnóstico del equipo" \
+      7 "Limpiar (elige qué quitar, incluido Docker)" \
+      8 "Desinstalar Docker (con confirmación)" \
+      9 "Exportar imágenes para clase sin internet (profesor)" \
+     10 "Ver el log" \
+      x "──────────  avanzado: un paso a mano  ──────────" \
+     11 "Instalar Docker, AWS CLI y psql" \
+     12 "Preparar las imágenes" \
+     13 "Arrancar Floci y configurar AWS" \
+     14 "Crear la instancia EC2" \
+     15 "Entrar por SSH en la instancia" \
+     16 "Crear la base de datos" \
+     17 "Consultar y crear tablas con SQL" \
       0 "Salir" ) || break
 
     case "$opcion" in
-      1) practica_alumno; pausa ;;
-      2) flujo_completo; pausa ;;
-      3) comprobar_equipo; pausa ;;
-      4) instalar_docker && instalar_aws_cli && instalar_psql; pausa ;;
-      5) preparar_imagenes; pausa ;;
-      6) arrancar_floci; pausa ;;
-      7) crear_instancia; pausa ;;
-      8) entrar_en_instancia; pausa ;;
-      9) crear_base_datos; pausa ;;
-     10) consulta_version && crear_tabla && consola_psql; pausa ;;
-     11) autoevaluar_practica; pausa ;;
-     12) entregar_practica; pausa ;;
-     13) ver_entregas; pausa ;;
-     14) limpiar_interactivo; pausa ;;
-     15) desinstalar_docker; pausa ;;
-     16) exportar_imagenes; pausa ;;
-     17) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
+      1) iniciar_practica; pausa ;;
+      2) autoevaluar_practica; pausa ;;
+      3) entregar_practica; pausa ;;
+      4) ver_entregas; pausa ;;
+      5) flujo_completo; pausa ;;
+      6) comprobar_equipo; pausa ;;
+      7) limpiar_interactivo; pausa ;;
+      8) desinstalar_docker; pausa ;;
+      9) exportar_imagenes; pausa ;;
+     10) [ -f "$LOG" ] && { clear; tail -40 "$LOG"; pausa; } ;;
+      x|X) : ;;
+     11) instalar_docker && instalar_aws_cli && instalar_psql; pausa ;;
+     12) preparar_imagenes; pausa ;;
+     13) arrancar_floci; pausa ;;
+     14) crear_instancia; pausa ;;
+     15) entrar_en_instancia; pausa ;;
+     16) crear_base_datos; pausa ;;
+     17) consulta_version && crear_tabla && consola_psql; pausa ;;
       0) break ;;
       *) ;;
     esac
