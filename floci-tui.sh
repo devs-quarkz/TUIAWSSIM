@@ -1380,6 +1380,8 @@ tui_menu() { # tui_menu "título" "texto" tag desc tag desc …
 
 tui_pantalla() {
   clear 2>/dev/null || true
+  local rol_txt=""
+  [ -n "${ROL:-}" ] && rol_txt="  ·  $(printf '%s' "$ROL" | tr '[:lower:]' '[:upper:]')"
   cat <<EOF
 ${C_CYAN}  ███████╗██╗      ██████╗  ██████╗██╗
   ██╔════╝██║     ██╔═══██╗██╔════╝██║
@@ -1387,7 +1389,7 @@ ${C_CYAN}  ███████╗██╗      ██████╗  ██�
   ██╔══╝  ██║     ██║   ██║██║     ██║
   ██║     ███████╗╚██████╔╝╚██████╗██║
   ╚═╝     ╚══════╝ ╚═════╝  ╚═════╝╚═╝${C_RESET}
-  ${C_DIM}práctica de AWS en tu portátil · ${OS_ETIQUETA:-sin detectar}${C_RESET}
+  ${C_DIM}práctica de AWS en tu portátil · ${OS_ETIQUETA:-sin detectar}${rol_txt}${C_RESET}
 EOF
 }
 
@@ -1879,7 +1881,8 @@ menu_principal() {
     return 1
   fi
   if [ -n "${ROL_FORZADO:-}" ]; then
-    guardar_rol "$ROL_FORZADO"
+    # Solo para esta ejecución: no tocamos ~/.tuiawssim-rol
+    ROL="$ROL_FORZADO"
   else
     cargar_rol
     if [ -z "$ROL" ]; then elegir_rol || return 0; fi
