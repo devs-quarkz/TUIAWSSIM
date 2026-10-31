@@ -16,6 +16,7 @@ set -o pipefail
 REPO="devs-quarkz/TUIAWSSIM"
 RAMA="main"
 SERVIDOR=""
+FORZAR_DESCARGA=0
 DESTINO="$HOME/TUIAWSSIM"
 ARG_TUI=()
 
@@ -97,33 +98,77 @@ fi
 mkdir -p "$DESTINO"
 cp -R "$ORIGEN"/. "$DESTINO"/ 2>/dev/null
 
-# Si el profesor tiene el paquete de imágenes, se baja también: así la
-# práctica funciona sin internet y sin descargar 1 GB de imágenes.
+# ── Paquete offline: solo lo que falte, y nunca dos veces ──────────
 if [ -n "$SERVIDOR" ]; then
-  # Paquete offline completo (Docker, psql, AWS CLI e imágenes): con esto
-  # el alumno no necesita internet para nada.
-  if curl -fsI "$SERVIDOR/offline.tar.gz" >/dev/null 2>&1; then
-    printf '\n  Descargando el paquete offline del profesor (~400 MB)…\n'
-    TMPO="$(mktemp)"
-    if curl -fsSL "$SERVIDOR/offline.tar.gz" -o "$TMPO"; then
-      mkdir -p "$DESTINO/offline"
-      if tar -xzf "$TMPO" -C "$DESTINO/offline" --strip-components=1 2>/dev/null; then
-        printf '\033[1;32m  ✓ Paquete offline listo (instala sin internet)\033[0m\n'
-      else
-        printf '\033[1;33m  ! El paquete offline venía dañado\033[0m\n'
-      fi
-    else
-      printf '\033[1;33m  ! No pude bajar el paquete offline\033[0m\n'
+  mkdir -p "$DESTINO/offline"
+
+  # ¿ya está esto descargado?
+  hay_herramientas() {
+    [ -s "$DESTINO/offline/awscliv2.zip" ] && [ -n "$(ls "$DESTINO"/offline/paquetes/*.deb 2>/dev/null)" ]
+  }
+  hay_imagenes() { [ -s "$DESTINO/offline/imagenes-floci.tar.gz" ]; }
+
+  descargar() {   # descargar <url> <destino> <etiqueta>
+    local url="$1" dst="$2" eti="$3" tmp
+    tmp="$(mktemp)"
+    printf '  ↓ %s…\n' "$eti"
+    if curl -fsSL "$url" -o "$tmp"; then
+      mv -f "$tmp" "$dst"
+      printf '\033[1;32m    ✓ %s\033[0m\n' "$eti"
+      return 0
     fi
-    rm -f "$TMPO"
+    rm -f "$tmp"
+    printf '\033[1;33m    ! no pude bajar: %s\033[0m\n' "$eti"
+    return 1
+  }
+
+  printf '\n  Comprobando el paquete del profesor…\n'
+
+  # ¿le hace falta algo de verdad? Si ya tiene todo, no se baja nada
+  falta_algo() {
+    command -v docker >/dev/null 2>&1 || return 0
+    command -v aws    >/dev/null 2>&1 || return 0
+    command -v psql   >/dev/null 2>&1 || return 0
+    return 1
+  }
+  faltan_imagenes() {
+    command -v docker >/dev/null 2>&1 || return 0
+    docker info >/dev/null 2>&1 || return 0
+    docker image inspect floci/floci:latest >/dev/null 2>&1 || return 0
+    docker image inspect postgres:16.3-alpine >/dev/null 2>&1 || return 0
+    docker image inspect alpine:3.21 >/dev/null 2>&1 || return 0
+    docker image inspect public.ecr.aws/amazonlinux/amazonlinux:2023 >/dev/null 2>&1 || return 0
+    return 1
+  }
+
+  # 1) herramientas: .deb (Docker, psql) + instalador de la AWS CLI
+  if [ "$FORZAR_DESCARGA" = 0 ] && ! falta_algo; then
+    printf '    · herramientas: ya tienes Docker, AWS CLI y psql, no bajo nada\n'
+  elif [ "$FORZAR_DESCARGA" = 0 ] && hay_herramientas; then
+    printf '    · herramientas: ya las tienes, no las bajo otra vez\n'
+  elif curl -fsI "$SERVIDOR/herramientas.tar.gz" >/dev/null 2>&1; then
+    if descargar "$SERVIDOR/herramientas.tar.gz" "$DESTINO/offline/herramientas.tar.gz" "herramientas (~170 MB)"; then
+      tar -xzf "$DESTINO/offline/herramientas.tar.gz" -C "$DESTINO/offline" --strip-components=1 2>/dev/null \
+        && rm -f "$DESTINO/offline/herramientas.tar.gz"
+    fi
+  elif curl -fsI "$SERVIDOR/offline.tar.gz" >/dev/null 2>&1; then
+    if descargar "$SERVIDOR/offline.tar.gz" "$DESTINO/offline/offline.tar.gz" "paquete completo (~415 MB)"; then
+      tar -xzf "$DESTINO/offline/offline.tar.gz" -C "$DESTINO/offline" --strip-components=1 2>/dev/null \
+        && rm -f "$DESTINO/offline/offline.tar.gz"
+    fi
+  fi
+
+  # 2) imágenes de Docker
+  if [ "$FORZAR_DESCARGA" = 0 ] && ! faltan_imagenes; then
+    printf '    · imágenes: ya están cargadas en Docker, no bajo nada\n'
+  elif [ "$FORZAR_DESCARGA" = 0 ] && hay_imagenes; then
+    printf '    · imágenes: ya las tienes, no las bajo otra vez\n'
   elif curl -fsI "$SERVIDOR/imagenes-floci.tar.gz" >/dev/null 2>&1; then
-    printf '\n  Descargando también las imágenes de Docker (~250 MB)…\n'
-    if curl -fsSL "$SERVIDOR/imagenes-floci.tar.gz" -o "$DESTINO/imagenes-floci.tar.gz"; then
-      printf '\033[1;32m  ✓ Imágenes descargadas\033[0m\n'
-    else
-      rm -f "$DESTINO/imagenes-floci.tar.gz"
-      printf '\033[1;33m  ! No pude bajar las imágenes; se descargarán de Docker si hay internet\033[0m\n'
-    fi
+    descargar "$SERVIDOR/imagenes-floci.tar.gz" "$DESTINO/offline/imagenes-floci.tar.gz" "imágenes de Docker (~260 MB)"
+  fi
+
+  if hay_herramientas && hay_imagenes; then
+    printf '\033[1;32m    ✓ Paquete offline completo (funciona sin internet)\033[0m\n'
   fi
 fi
 chmod +x "$DESTINO"/*.sh 2>/dev/null

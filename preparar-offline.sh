@@ -31,7 +31,7 @@ if command -v apt-get >/dev/null 2>&1; then
   SUDO apt-get clean
   SUDO apt-get update -qq || warn "apt update falló; sigo con la caché que haya"
   SUDO apt-get install --download-only -y --reinstall \
-      docker.io containerd docker-compose-v2 runc \
+      docker.io containerd runc \
       postgresql-client postgresql-client-common unzip 2>&1 | tail -3
   cp -f "$CACHE"/*.deb "$OUT/paquetes/" 2>/dev/null
   rm -f "$OUT/paquetes"/*.deb.part 2>/dev/null
@@ -109,8 +109,15 @@ ok "Proyecto: $(du -h "$OUT/TUIAWSSIM.tar.gz" | cut -f1)"
   echo "  (levanta una página con el instalador y los enlaces)"
 } > "$OUT/MANIFIESTO.txt"
 
-# ── 6. Un único fichero para que el alumno lo baje de una vez ─────
-msg "Empaquetando todo en un solo fichero (offline.tar.gz)"
+# ── 6. Piezas separadas: el alumno baja solo lo que le falta ──────
+msg "Empaquetando por partes"
+# herramientas: .deb + instalador de la AWS CLI
+tar -czf "$DIR/herramientas.tar.gz" -C "$DIR" offline/paquetes offline/awscliv2.zip 2>/dev/null \
+  && ok "herramientas.tar.gz: $(du -h "$DIR/herramientas.tar.gz" | cut -f1)"
+# imágenes: ya están en offline/imagenes-floci.tar.gz; copia en la raíz para servirla
+[ -f "$DIR/offline/imagenes-floci.tar.gz" ] && cp -f "$DIR/offline/imagenes-floci.tar.gz" "$DIR/imagenes-floci.tar.gz" \
+  && ok "imagenes-floci.tar.gz: $(du -h "$DIR/imagenes-floci.tar.gz" | cut -f1)"
+# todo junto (por compatibilidad)
 tar -czf "$DIR/offline.tar.gz" -C "$DIR" offline
 ok "offline.tar.gz: $(du -h "$DIR/offline.tar.gz" | cut -f1)"
 

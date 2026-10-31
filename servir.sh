@@ -83,7 +83,7 @@ EOF
   echo "<pre style=\"background:#1a1d27;padding:14px;border-radius:8px;overflow:auto\">curl -fsSL http://$IP:$PUERTO/instalar.sh | bash -s -- --servidor http://$IP:$PUERTO</pre>"
   echo '<p>Si prefieres hacerlo a mano, descarga el proyecto y ejecútalo:</p>'
   echo '<ul>'
-  for f in TUIAWSSIM.tar.gz offline/TUIAWSSIM.tar.gz offline/MANIFIESTO.txt; do
+  for f in TUIAWSSIM.tar.gz herramientas.tar.gz imagenes-floci.tar.gz offline.tar.gz offline/MANIFIESTO.txt; do
     [ -f "$DIR/$f" ] && echo "<li><a style=\"color:#4cc2ff\" href=\"/$f\">$f</a> ($(du -h "$DIR/$f" | cut -f1))</li>"
   done
   [ -d "$DIR/offline" ] && echo "<li><b>offline/</b> — todo lo necesario para instalar sin internet</li>"
