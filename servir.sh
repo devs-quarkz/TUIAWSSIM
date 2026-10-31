@@ -37,12 +37,12 @@ TMP="$(mktemp -d)"
 mkdir -p "$TMP/TUIAWSSIM"
 for f in "$DIR"/*; do
   case "$(basename "$f")" in
-    offline|index.html|TUIAWSSIM.tar.gz|offline.tar.gz) continue ;;
+    offline|index.html|TUIAWSSIM.tar.gz|offline.tar.gz|herramientas.tar.gz|imagenes-floci.tar.gz|.git) continue ;;
   esac
   cp -R "$f" "$TMP/TUIAWSSIM"/ 2>/dev/null
 done
 rm -f "$TMP/TUIAWSSIM/TUIAWSSIM.tar.gz"
-tar -czf "$DIR/TUIAWSSIM.tar.gz" --exclude=offline --exclude=index.html --exclude=TUIAWSSIM.tar.gz --exclude=offline.tar.gz -C "$TMP" TUIAWSSIM
+tar -czf "$DIR/TUIAWSSIM.tar.gz" --exclude=offline --exclude=index.html --exclude=TUIAWSSIM.tar.gz --exclude=offline.tar.gz --exclude=herramientas.tar.gz --exclude=imagenes-floci.tar.gz --exclude=.git -C "$TMP" TUIAWSSIM
 rm -rf "$TMP"
 printf '  Paquete listo: %s (%s)\n\n' "$DIR/TUIAWSSIM.tar.gz" "$(du -h "$DIR/TUIAWSSIM.tar.gz" | cut -f1)"
 
