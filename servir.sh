@@ -53,17 +53,21 @@ cat <<EOF
 ═══════════════════════════════════════════════════════════════
 
   Este equipo:   http://$IP:$PUERTO
-  Paquete:       http://$IP:$PUERTO/TUIAWSSIM.tar.gz
-  Instalador:    http://$IP:$PUERTO/instalar.sh
+  Nombre fijo:   http://$NOMBRE_LOCAL:$PUERTO     <- no cambia aunque cambie la IP
+  Paquete:       http://$NOMBRE_LOCAL:$PUERTO/TUIAWSSIM.tar.gz
+  Instalador:    http://$NOMBRE_LOCAL:$PUERTO/instalar.sh
 
   ── Pásale esto a tus alumnos ──────────────────────────────
 
-  curl -fsSL http://$IP:$PUERTO/instalar.sh | bash -s -- --servidor http://$IP:$PUERTO
+  curl -fsSL http://$NOMBRE_LOCAL:$PUERTO/instalar.sh | bash -s -- --servidor http://$NOMBRE_LOCAL:$PUERTO
 
   ───────────────────────────────────────────────────────────
 
   Los alumnos deben estar en la misma red (o en tu red Tailscale).
   Para parar el servidor: Ctrl+C
+
+  Si el nombre .local no resolviera en algún equipo, usa la IP.
+  Para tener el nombre fijo: sudo apt install avahi-daemon
 
   Si no cargan la página, revisa el cortafuegos:
     Linux:  sudo ufw allow $PUERTO/tcp
@@ -129,6 +133,8 @@ fi
 {
   echo "TUIAWSSIM — lo que sirve este equipo"
   echo "Fecha: $(date '+%Y-%m-%d %H:%M')"
+  echo "URL fija: http://$(hostname -s 2>/dev/null || hostname).local:$PUERTO"
+  echo "URL IP:   http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PUERTO"
   echo
   for f in TUIAWSSIM.tar.gz herramientas.tar.gz imagenes-floci.tar.gz offline.tar.gz; do
     [ -f "$DIR/$f" ] && printf '%-24s %s\n' "$f" "$(du -h "$DIR/$f" 2>/dev/null | cut -f1)"
