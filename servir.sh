@@ -107,7 +107,7 @@ After=network-online.target docker.service
 [Service]
 Type=simple
 WorkingDirectory=$DIR
-ExecStart=$(command -v python3) -m http.server $PUERTO --bind 0.0.0.0
+ExecStart=/bin/bash $DIR/servir.sh $PUERTO
 Restart=always
 RestartSec=3
 User=$(id -un)
