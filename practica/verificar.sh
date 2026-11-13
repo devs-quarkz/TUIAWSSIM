@@ -70,6 +70,16 @@ done
 # ── utilidades ─────────────────────────────────────────────────────
 hay() { command -v "$1" >/dev/null 2>&1; }
 
+# Docker puede necesitar sudo si el usuario no está en el grupo 'docker'
+DOCKER() {
+  if [ -z "${DOCKER_MODO+x}" ]; then
+    if docker info >/dev/null 2>&1; then DOCKER_MODO=""
+    elif sudo -n docker info >/dev/null 2>&1; then DOCKER_MODO="sudo"
+    else DOCKER_MODO=""; fi
+  fi
+  if [ "$DOCKER_MODO" = "sudo" ]; then sudo docker "$@"; else docker "$@"; fi
+}
+
 # El cliente de AWS: si no tiene endpoint configurado, se le pasa a mano.
 AWSQ() {
   if [ -z "${AWS_ENDPOINT_OK:-}" ]; then
@@ -106,7 +116,7 @@ psqlq() {
 chk_entorno() {
   hay docker || { DETALLE="docker no está instalado"; return 1; }
   local v
-  v=$(docker info --format '{{.ServerVersion}}' 2>/dev/null)
+  v=$(DOCKER info --format '{{.ServerVersion}}' 2>/dev/null)
   if [ -z "$v" ]; then DETALLE="docker está, pero el demonio no responde"; return 1; fi
   DETALLE="Docker $v responde"
 }
@@ -118,7 +128,7 @@ chk_floci() {
     DETALLE="Floci escuchando en $PUERTO_FLOCI"
     return 0
   fi
-  if hay docker && docker ps --filter name=floci --format '{{.Names}}' 2>/dev/null | grep -q floci; then
+  if hay docker && DOCKER ps --filter name=floci --format '{{.Names}}' 2>/dev/null | grep -q floci; then
     DETALLE="el contenedor existe pero no responde (espera unos segundos)"
   else
     DETALLE="no hay Floci corriendo"
@@ -143,11 +153,11 @@ chk_credenciales() {
 }
 
 chk_imagen_ec2() {
-  if ! hay docker || ! docker image inspect "$IMG_BASE" >/dev/null 2>&1; then
+  if ! hay docker || ! DOCKER image inspect "$IMG_BASE" >/dev/null 2>&1; then
     DETALLE="falta la imagen $IMG_BASE"
     return 1
   fi
-  if docker run --rm "$IMG_BASE" sh -c \
+  if DOCKER run --rm "$IMG_BASE" sh -c \
       'grep -qx "account required pam_permit.so" /etc/pam.d/sshd && test -x /usr/sbin/sshd' \
       >/dev/null 2>&1; then
     DETALLE="la AMI trae sshd y el arreglo de PAM"
@@ -204,9 +214,9 @@ chk_instancia() {
 puerto_ssh_publicado() {
   hay docker || return 1
   local cid
-  cid=$(docker ps --format '{{.Names}} {{.ID}}' 2>/dev/null | awk '/^floci-aws-ec2/{print $2; exit}')
+  cid=$(DOCKER ps --format '{{.Names}} {{.ID}}' 2>/dev/null | awk '/^floci-aws-ec2/{print $2; exit}')
   [ -n "$cid" ] || return 1
-  docker port "$cid" 22/tcp 2>/dev/null | head -1 | sed 's/.*:\([0-9]\{1,\}\)$/\1/'
+  DOCKER port "$cid" 22/tcp 2>/dev/null | head -1 | sed 's/.*:\([0-9]\{1,\}\)$/\1/'
 }
 
 prueba_ssh() {   # $1 = puerto (vacío = por IP)

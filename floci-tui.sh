@@ -396,6 +396,11 @@ instalar_deb_offline() {
   SUDO apt-get -f install -y --no-download >>"$HOME/.tuiawssim-deb.log" 2>&1 || true
   if dpkg -l docker.io 2>/dev/null | grep -q '^ii' || dpkg -l postgresql-client-common 2>/dev/null | grep -q '^ii'; then
     ok "Paquetes instalados desde el paquete offline"
+    # Que el alumno pueda usar docker sin sudo (necesario para el verificador)
+    if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+      SUDO usermod -aG docker "$(id -un)" >/dev/null 2>&1 && \
+        info "Te he añadido al grupo docker (se aplica al cerrar sesión; mientras uso sudo)"
+    fi
     return 0
   fi
   fallo "No pude instalarlos. Mira $HOME/.tuiawssim-deb.log"
