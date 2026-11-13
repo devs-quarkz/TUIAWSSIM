@@ -52,6 +52,7 @@ LIMPIAR=0
 SOLO_COMPROBAR=0
 DESINSTALAR_DOCKER=0
 FORZAR_SIN_INTERNET=0
+PREPARAR_CLASE=0
 SOLO_AUTOEVALUAR=0
 SOLO_ENTREGAR=0
 ROL_FORZADO=""
@@ -2137,11 +2138,11 @@ herramientas_profesor() {
 preparar_y_servir() {
   titulo "Preparar y servir la clase"
 
-  # Sin Docker no se pueden guardar las imágenes: lo instalamos primero
-  if ! docker_ok; then
-    info "Docker no está listo: lo instalo antes de preparar el paquete"
-    instalar_docker || { fallo "Sin Docker no puedo preparar el paquete"; return 1; }
-  fi
+  # El equipo del profesor tiene que tener todo antes de repartir
+  info "Dejo el equipo con todo lo necesario (Docker, AWS CLI y psql)"
+  instalar_docker  || { fallo "Sin Docker no puedo preparar el paquete"; return 1; }
+  instalar_aws_cli || aviso "Sin AWS CLI (no hace falta para servir, sí para probar)"
+  instalar_psql    || aviso "Sin psql (no hace falta para servir, sí para probar)"
   if [ ! -f "$DIR_SCRIPT/offline.tar.gz" ] && [ ! -d "$DIR_SCRIPT/offline" ]; then
     aviso "Todavía no hay paquete para los alumnos."
     preparar_paquete || return 1
@@ -2149,6 +2150,24 @@ preparar_y_servir() {
     ok "El paquete ya está preparado"
   fi
   servir_clase
+}
+
+# Deja el equipo del profesor listo y sirviendo, sin preguntar nada
+preparar_clase() {
+  AUTO=1          # confirmar/pausa no preguntan en este modo
+  titulo "Preparar la clase"
+  instalar_docker  || { fallo "No pude instalar Docker"; return 1; }
+  instalar_aws_cli || aviso "Sin AWS CLI (opcional para servir)"
+  instalar_psql    || aviso "Sin psql (opcional para servir)"
+  preparar_imagenes || { fallo "No pude preparar las imágenes"; return 1; }
+  preparar_paquete  || { fallo "No pude preparar el paquete"; return 1; }
+  servir_clase      || { fallo "No pude levantar el servidor"; return 1; }
+  titulo "Clase lista"
+  ok "Este equipo ya puede servir a los alumnos"
+  info "Se seguirá sirviendo aunque cierres la terminal (servicio del sistema)."
+  URL_SERV=$(url_servidor 2>/dev/null)
+  printf '\n  Pásales esto a tus alumnos:\n\n'
+  printf '    curl -fsSL %s/instalar.sh | bash -s -- --servidor %s\n\n' "$URL_SERV" "$URL_SERV"
 }
 
 menu_alumno() {
@@ -2248,6 +2267,7 @@ floci-tui.sh — instalador y guía de la práctica de Floci
   ./floci-tui.sh --sin-internet     No usa la red: instala del paquete offline
   ./floci-tui.sh --alumno           Entra directo con el rol de alumno
   ./floci-tui.sh --profesor         Entra directo con el rol de profesor
+  ./floci-tui.sh --preparar-clase   PROFESOR: instala todo, prepara el paquete y sirve
 
 La práctica del alumno (en el menú, opción 1):
   practica/PRACTICA.md              Enunciado: 10 bloques con ejercicios y 20 preguntas
@@ -2291,6 +2311,7 @@ main() {
       --sin-internet) FORZAR_SIN_INTERNET=1 ;;
       --alumno)       ROL_FORZADO=alumno ;;
       --profesor)     ROL_FORZADO=profesor ;;
+      --preparar-clase) PREPARAR_CLASE=1 ;;
       --autoevaluar)  SOLO_AUTOEVALUAR=1 ;;
       --entregar)     SOLO_ENTREGAR=1 ;;
       --limpiar)  LIMPIAR=1 ;;
@@ -2308,6 +2329,7 @@ main() {
   if [ -n "$EXPORTAR" ]; then exportar_imagenes "$EXPORTAR"; exit $?; fi
   if [ -n "$CARGAR" ];   then cargar_imagenes "$CARGAR";   exit $?; fi
 
+  if [ "$PREPARAR_CLASE" = 1 ]; then preparar_clase; exit $?; fi
   if [ "$SOLO_AUTOEVALUAR" = 1 ]; then verificador; exit $?; fi
   if [ "$SOLO_ENTREGAR" = 1 ]; then verificador --guardar; exit $?; fi
 
