@@ -1968,6 +1968,16 @@ url_servidor() {
 servir_clase() {
   titulo "Servir la clase"
 
+  # Si hay cortafuegos activo, abrir el puerto para los alumnos
+  if [ "$OS_FAMILIA" = "debian" ] && hay_comando ufw; then
+    if SUDO ufw status 2>/dev/null | grep -q "Status: active"; then
+      if ! SUDO ufw status 2>/dev/null | grep -q "8000"; then
+        info "El cortafuegos está activo: abro el puerto 8000"
+        pedir_sudo && SUDO ufw allow 8000/tcp >/dev/null 2>&1 && ok "puerto 8000 abierto"
+      fi
+    fi
+  fi
+
   if servidor_activo; then
     ok "El servidor ya estaba corriendo"
   else
@@ -2121,6 +2131,12 @@ herramientas_profesor() {
 
 preparar_y_servir() {
   titulo "Preparar y servir la clase"
+
+  # Sin Docker no se pueden guardar las imágenes: lo instalamos primero
+  if ! docker_ok; then
+    info "Docker no está listo: lo instalo antes de preparar el paquete"
+    instalar_docker || { fallo "Sin Docker no puedo preparar el paquete"; return 1; }
+  fi
   if [ ! -f "$DIR_SCRIPT/offline.tar.gz" ] && [ ! -d "$DIR_SCRIPT/offline" ]; then
     aviso "Todavía no hay paquete para los alumnos."
     preparar_paquete || return 1
