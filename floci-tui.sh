@@ -448,16 +448,18 @@ instalar_docker() {
       fi
     fi
   else
+    # 1) SIEMPRE primero el paquete del profesor, aunque haya internet
+    if [ "$OS_FAMILIA" = "debian" ] && instalar_deb_offline; then
+      SUDO systemctl start docker 2>/dev/null || true
+      sleep 3
+      detectar_docker_cmd || { fallo "Docker se instaló pero el demonio no responde"; return 1; }
+      ok "Docker instalado desde el paquete del profesor"
+      return 0
+    fi
+    # 2) solo si no hay paquete, se usa internet
     if [ "$SIN_INTERNET" = 1 ]; then
-      if [ "$OS_FAMILIA" = "debian" ] && instalar_deb_offline; then
-        SUDO systemctl start docker 2>/dev/null || true
-        sleep 3
-        detectar_docker_cmd || { fallo "Docker se instaló pero el demonio no responde"; return 1; }
-        ok "Docker listo (instalado sin internet)"
-        return 0
-      fi
-      fallo "No hay internet y Docker no está instalado"
-      info "Pídele al profesor el paquete offline, o descárgalo donde tengas red."
+      fallo "No hay paquete del profesor ni internet para instalar Docker"
+      info "Pídele el paquete al profesor (o ejecútalo donde tengas red)."
       return 1
     fi
     case "$OS_FAMILIA" in
@@ -500,13 +502,15 @@ instalar_aws_cli() {
     ok "AWS CLI ya instalada: $(aws --version 2>&1 | head -1)"
     return 0
   fi
+  # 1) primero el paquete del profesor
+  if [ "$OS_FAMILIA" = "debian" ] && instalar_awscli_offline; then
+    ok "AWS CLI instalada desde el paquete del profesor: $(aws --version 2>&1 | head -1)"
+    return 0
+  fi
+  # 2) si no hay paquete, internet
   if [ "$SIN_INTERNET" = 1 ]; then
-    if [ "$OS_FAMILIA" = "debian" ] && instalar_awscli_offline; then
-      ok "AWS CLI instalada sin internet: $(aws --version 2>&1 | head -1)"
-      return 0
-    fi
-    fallo "No hay internet y la AWS CLI no está instalada"
-    info "Pídele al profesor el paquete offline."
+    fallo "No hay paquete del profesor ni internet para la AWS CLI"
+    info "Pídele el paquete al profesor."
     return 1
   fi
   local arq; arq="$(architecture)"
@@ -541,13 +545,15 @@ instalar_psql() {
     ok "psql ya está instalado: $(psql --version)"
     return 0
   fi
+  # 1) primero el paquete del profesor
+  if [ "$OS_FAMILIA" = "debian" ] && instalar_deb_offline && psql_ok; then
+    ok "psql instalado desde el paquete del profesor: $(psql --version)"
+    return 0
+  fi
+  # 2) si no hay paquete, internet
   if [ "$SIN_INTERNET" = 1 ]; then
-    if [ "$OS_FAMILIA" = "debian" ] && instalar_deb_offline && psql_ok; then
-      ok "psql instalado sin internet: $(psql --version)"
-      return 0
-    fi
-    fallo "No hay internet y psql no está instalado"
-    info "Pídele al profesor el paquete offline."
+    fallo "No hay paquete del profesor ni internet para psql"
+    info "Pídele el paquete al profesor."
     return 1
   fi
   case "$OS_FAMILIA" in
@@ -1275,6 +1281,14 @@ comprobar_equipo() {
 
   if aws_ok; then ok "AWS CLI: $(aws --version 2>&1 | head -1)"; else aviso "AWS CLI no instalada (o rota)"; fi
   if psql_ok; then ok "psql: $(psql --version)"; else aviso "psql no instalado (o roto)"; fi
+  if hay_comando docker; then
+    local _n=0 _i
+    for _i in "$IMG_FLOCI" "$IMG_PG" "$IMG_ALPINE" "$IMG_BASE"; do
+      tiene_imagen "$_i" 2>/dev/null && _n=$((_n+1))
+    done
+    if [ "$_n" = 4 ]; then ok "Imágenes de Docker: 4/4"
+    else aviso "Imágenes de Docker: $_n/4"; fi
+  fi
   if [ "$TIENE_WHIPTAIL" = 1 ]; then ok "Interfaz whiptail disponible"; else aviso "Sin whiptail: usaré modo texto"; fi
 
   # Conflictos de puertos (AnyDesk y compañía)

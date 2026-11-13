@@ -127,7 +127,14 @@ if [ -n "$SERVIDOR" ]; then
     return 1
   }
 
-  printf '\n  Comprobando el paquete del profesor…\n'
+  # Qué está sirviendo el profesor
+  if curl -fsSL "$SERVIDOR/estado.txt" -o /tmp/estado-tui.txt 2>/dev/null; then
+    printf '\n  El profesor está sirviendo:\n'
+    sed 's/^/    /' /tmp/estado-tui.txt
+    rm -f /tmp/estado-tui.txt
+    printf '\n'
+  fi
+  printf '  Comprobando el paquete del profesor…\n'
   CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/tuiawssim"
   mkdir -p "$CACHE" 2>/dev/null
 
@@ -204,6 +211,21 @@ if [ -n "$SERVIDOR" ]; then
 fi
 chmod +x "$DESTINO"/*.sh 2>/dev/null
 printf '\n\033[1;32m  ✓ Instalado en %s\033[0m\n' "$DESTINO"
+
+# Estado del equipo del alumno
+printf '\n  Tu equipo:\n'
+for c in docker aws psql; do
+  if command -v "$c" >/dev/null 2>&1; then
+    printf '    %-10s \033[1;32m✓\033[0m %s\n' "$c" "$($c --version 2>&1 | head -1 | cut -c1-46)"
+  else
+    printf '    %-10s \033[1;33m·\033[0m falta (se instala al empezar la práctica)\n' "$c"
+  fi
+done
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  NIMG=$(docker images --format '{{.Repository}}' 2>/dev/null | grep -cE 'floci|amazonlinux|alpine|postgres')
+  printf '    %-10s \033[1;32m✓\033[0m %s de 4 imágenes\n' "imágenes" "$NIMG"
+fi
+printf '\n' 
 
 # ── Lanzar ───────────────────────────────────────────────────
 cd "$DESTINO" || exit 1

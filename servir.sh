@@ -125,5 +125,18 @@ EOF
   exit 0
 fi
 
+# Estado de lo que se sirve: el alumno lo consulta antes de descargar
+{
+  echo "TUIAWSSIM — lo que sirve este equipo"
+  echo "Fecha: $(date '+%Y-%m-%d %H:%M')"
+  echo
+  for f in TUIAWSSIM.tar.gz herramientas.tar.gz imagenes-floci.tar.gz offline.tar.gz; do
+    [ -f "$DIR/$f" ] && printf '%-24s %s\n' "$f" "$(du -h "$DIR/$f" 2>/dev/null | cut -f1)"
+  done
+  echo
+  echo "debs:     $(ls "$DIR"/offline/paquetes/*.deb 2>/dev/null | wc -l)"
+  echo "imagenes: $(docker images -q 2>/dev/null | wc -l | tr -d ' ') en docker"
+} > "$DIR/estado.txt" 2>/dev/null
+
 cd "$DIR" || exit 1
 exec python3 -m http.server "$PUERTO" --bind 0.0.0.0
