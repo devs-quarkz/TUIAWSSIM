@@ -25,6 +25,14 @@ case "$(uname -s)" in
 esac
 [ -z "$IP" ] && IP="127.0.0.1"
 
+# Nombre .local (mDNS): NO cambia aunque el DHCP cambie la IP del equipo
+NOMBRE_LOCAL="$(hostname -s 2>/dev/null || hostname).local"
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active avahi-daemon >/dev/null 2>&1; then
+  HAY_MDNS=1
+else
+  HAY_MDNS=0
+fi
+
 command -v python3 >/dev/null 2>&1 || {
   printf '\033[1;31m  Necesito python3 para servir los ficheros.\033[0m\n'
   printf '  Linux: sudo apt install -y python3\n  macOS: viene instalado\n'
