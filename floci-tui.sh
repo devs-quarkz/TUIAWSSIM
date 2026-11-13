@@ -1960,6 +1960,13 @@ servidor_activo() {
 }
 
 url_servidor() {
+  # Preferimos el nombre .local: no cambia aunque el DHCP cambie la IP
+  local nombre
+  nombre="$(hostname -s 2>/dev/null || hostname).local"
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active avahi-daemon >/dev/null 2>&1; then
+    printf 'http://%s:8000' "$nombre"
+    return 0
+  fi
   local ip
   ip=$(grep -m1 "Este equipo:" /tmp/servir.log 2>/dev/null | sed 's|.*http://||; s|:8000.*||')
   if [ -z "$ip" ]; then
