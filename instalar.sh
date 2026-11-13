@@ -182,6 +182,22 @@ if [ -n "$SERVIDOR" ]; then
     descargar "$SERVIDOR/imagenes-floci.tar.gz" "$DESTINO/offline/imagenes-floci.tar.gz" "imágenes de Docker (~260 MB)"
   fi
 
+  # Si Docker ya funciona, cargamos las imágenes ahora mismo: así el TUI
+  # las encuentra listas y el alumno puede empezar sin esperar.
+  if [ -s "$DESTINO/offline/imagenes-floci.tar.gz" ] && \
+     command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    if docker image inspect floci/floci:latest >/dev/null 2>&1; then
+      printf '    · imágenes: ya estaban cargadas en Docker\n'
+    else
+      printf '  ↓ cargando las imágenes en Docker…\n'
+      if docker load < "$DESTINO/offline/imagenes-floci.tar.gz" >/dev/null 2>&1; then
+        printf '\033[1;32m    ✓ imágenes cargadas\033[0m\n'
+      else
+        printf '\033[1;33m    ! no pude cargarlas ahora; el TUI lo intentará\033[0m\n'
+      fi
+    fi
+  fi
+
   if hay_herramientas && hay_imagenes; then
     printf '\033[1;32m    ✓ Paquete offline completo (funciona sin internet)\033[0m\n'
   fi

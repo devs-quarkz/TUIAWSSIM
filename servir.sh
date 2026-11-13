@@ -91,5 +91,39 @@ EOF
   echo '<p style="color:#888">Servido por '"$(hostname)"' · puerto '"$PUERTO"'</p>'
 } > "$DIR/index.html"
 
+# --servicio: deja el servidor como servicio de systemd (arranca solo y se
+# reinicia si se cae). Útil en el equipo del profesor.
+if [ "${1:-}" = "--servicio" ] || [ "${1:-}" = "--instalar-servicio" ]; then
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "  Solo en Linux con systemd."; exit 1
+  fi
+  UNIDAD="/etc/systemd/system/tuiawssim.service"
+  printf '  Creando %s…\n' "$UNIDAD"
+  sudo tee "$UNIDAD" >/dev/null <<EOF
+[Unit]
+Description=TUIAWSSIM - servidor de clase (puerto $PUERTO)
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=$DIR
+ExecStart=$(command -v python3) -m http.server $PUERTO --bind 0.0.0.0
+Restart=always
+RestartSec=3
+User=$(id -un)
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now tuiawssim.service
+  sleep 2
+  sudo systemctl --no-pager --lines=0 status tuiawssim.service | head -4
+  echo
+  echo "  Ya está sirviendo y arrancará solo al encender el equipo."
+  echo "  Para pararlo:  sudo systemctl disable --now tuiawssim.service"
+  exit 0
+fi
+
 cd "$DIR" || exit 1
 exec python3 -m http.server "$PUERTO" --bind 0.0.0.0
