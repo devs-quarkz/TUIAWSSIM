@@ -1,9 +1,0 @@
-TUIAWSSIM — lo que sirve este equipo
-Fecha: 2026-11-13 13:16
-URL fija: http://hackgit.local:8077
-URL IP:   http://:8077
-
-TUIAWSSIM.tar.gz          52K
-
-debs:            0
-imagenes: 0 en docker
