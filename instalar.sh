@@ -229,12 +229,11 @@ printf '\n'
 
 # ── Lanzar ───────────────────────────────────────────────────
 cd "$DESTINO" || exit 1
-# El instalador es la vía del ALUMNO: no hereda el rol que hubiera en el equipo
+# Cualquier equipo puede ser profesor o alumno: se pregunta siempre el rol
 case " ${ARG_TUI[*]} " in
-  *" --profesor "*|*" --alumno "*) : ;;
-  *) ARG_TUI+=(--alumno) ;;
+  *" --profesor "*|*" --alumno "*|*" --preguntar-rol "*) : ;;
+  *) ARG_TUI+=(--preguntar-rol) ;;
 esac
 
-printf '  Lanzando el TUI en modo alumno…\n'
-printf '  (si eres el profesor y quieres tu menú: ./floci-tui.sh --profesor)\n\n'
+printf '  Lanzando el TUI…\n\n'
 exec ./floci-tui.sh "${ARG_TUI[@]}"

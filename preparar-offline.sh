@@ -14,7 +14,12 @@ ok()   { printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m  ! %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; exit 1; }
 
-[ "$(uname -s)" = "Darwin" ] && { warn "Esto se ejecuta en el equipo Linux del profesor (Mint/Ubuntu)."; exit 1; }
+if [ "$(uname -s)" = "Darwin" ]; then
+  warn "En macOS no se puede empaquetar Docker (es una app): el alumno Mac"
+  warn "necesita internet la primera vez (Homebrew + Docker Desktop/Colima)."
+  warn "Para el paquete completo, ejecútalo en el equipo Linux del profesor."
+  exit 1
+fi
 
 # Solo para decidir si descargamos o reutilizamos lo que ya hay
 tiene_red() {
@@ -61,7 +66,21 @@ msg "Creando el paquete offline en $OUT"
 mkdir -p "$OUT/paquetes" "$OUT"
 
 # ── 1. Paquetes .deb (Docker, psql, unzip) con sus dependencias ─────
-msg "Paquetes de Docker, psql y unzip"
+# Familia de la distro (Debian, Fedora, Arch, SUSE, macOS)
+FAMILIA="otro"
+if [ "$(uname -s)" = "Darwin" ]; then
+  FAMILIA="macos"
+elif [ -r /etc/os-release ]; then
+  _id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"' | head -1)
+  _like=$(sed -n 's/^ID_LIKE=//p' /etc/os-release | tr -d '"' | head -1)
+  case "$_id $_like" in
+    *debian*|*ubuntu*|*mint*|*pop*|*elementary*|*kali*) FAMILIA="debian" ;;
+    *fedora*|*rhel*|*centos*|*rocky*|*almalinux*)      FAMILIA="fedora" ;;
+    *arch*|*manjaro*|*endeavouros*)                     FAMILIA="arch" ;;
+    *suse*|*sles*)                                      FAMILIA="suse" ;;
+  esac
+fi
+msg "Paquetes de Docker y psql ($FAMILIA)"
 if [ "$(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l)" -ge 5 ]; then
   cp -f "$OUT/paquetes"/*.deb "$CACHE_DIR/paquetes/" 2>/dev/null
   ok "ya están en offline/paquetes ($(ls "$OUT/paquetes"/*.deb | wc -l) .deb): no descargo nada"
@@ -72,8 +91,34 @@ elif [ -s "$CACHE_DIR/herramientas.tar.gz" ] && \
      tiene_debs_dentro "$CACHE_DIR/herramientas.tar.gz"; then
   tar -xzf "$CACHE_DIR/herramientas.tar.gz" -C "$OUT" --strip-components=1 2>/dev/null
   ok "reutilizados de la caché ($(ls "$OUT/paquetes"/*.deb 2>/dev/null | wc -l) .deb): no descargo nada"
+elif [ "$FAMILIA" = "fedora" ]; then
+  if ! tiene_red; then
+    warn "Sin red y sin RPM en offline/paquetes"
+  else
+    SUDO dnf install -y --downloadonly --destdir="$OUT/paquetes" docker postgresql unzip 2>&1 | tail -2
+    ok "$(ls "$OUT/paquetes"/*.rpm 2>/dev/null | wc -l) RPM descargados"
+    cp -f "$OUT/paquetes"/*.rpm "$CACHE_DIR/paquetes/" 2>/dev/null
+  fi
+elif [ "$FAMILIA" = "arch" ]; then
+  if ! tiene_red; then
+    warn "Sin red y sin paquetes en offline/paquetes"
+  else
+    mkdir -p "$OUT/paquetes"
+    SUDO pacman -Sw --noconfirm --cachedir "$OUT/paquetes" docker postgresql 2>&1 | tail -2
+    ok "$(ls "$OUT/paquetes"/*.pkg.tar.* 2>/dev/null | wc -l) paquetes de Arch descargados"
+  fi
+elif [ "$FAMILIA" = "suse" ]; then
+  if ! tiene_red; then
+    warn "Sin red y sin RPM en offline/paquetes"
+  else
+    SUDO zypper --no-refresh -y --download-only install docker postgresql 2>&1 | tail -2
+    find /var/cache/zypp/packages -name '*.rpm' -exec cp -f {} "$OUT/paquetes/" \; 2>/dev/null
+    ok "$(ls "$OUT/paquetes"/*.rpm 2>/dev/null | wc -l) RPM descargados"
+  fi
+elif [ "$FAMILIA" = "macos" ]; then
+  warn "En macOS no hay paquetes: el alumno necesita Homebrew (Docker Desktop o Colima)"
 elif ! command -v apt-get >/dev/null 2>&1; then
-  warn "No hay apt-get: este equipo no puede preparar los paquetes Linux"
+  warn "Distro no reconocida: no puedo preparar paquetes (¿dnf, pacman o zypper?)"
 elif ! tiene_red; then
   warn "Sin internet y sin paquetes en offline/paquetes."
   warn "Ejecútalo una vez donde haya red, o copia offline/paquetes de otro equipo."

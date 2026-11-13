@@ -53,6 +53,7 @@ SOLO_COMPROBAR=0
 DESINSTALAR_DOCKER=0
 FORZAR_SIN_INTERNET=0
 PREPARAR_CLASE=0
+PREGUNTAR_ROL=0
 SOLO_AUTOEVALUAR=0
 SOLO_ENTREGAR=0
 ROL_FORZADO=""
@@ -184,8 +185,18 @@ detectar_os() {
   case "$(uname -s)" in
     Darwin) OS_ETIQUETA="macOS $(sw_vers -productVersion 2>/dev/null)"; OS_FAMILIA="macos"; return 0 ;;
   esac
-  case "$(distro)" in
-    *Mint*|*Ubuntu*|*Debian*) OS_FAMILIA="debian" ;;
+  # Familia por /etc/os-release: sirve para Debian/Ubuntu/Mint, Fedora/RHEL/
+  # CentOS/Rocky, Arch/Manjaro, openSUSE...
+  local id="" like=""
+  if [ -r /etc/os-release ]; then
+    id=$(sed -n 's/^ID=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1)
+    like=$(sed -n 's/^ID_LIKE=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1)
+  fi
+  case "$id $like" in
+    *debian*|*ubuntu*|*mint*|*pop*|*elementary*|*kali*|*raspbian*|*neon*) OS_FAMILIA="debian" ;;
+    *fedora*|*rhel*|*centos*|*rocky*|*almalinux*|*oracle*|*amzn*)          OS_FAMILIA="fedora" ;;
+    *arch*|*manjaro*|*endeavouros*|*garuda*|*artix*)                       OS_FAMILIA="arch" ;;
+    *opensuse*|*suse*|*sles*)                                               OS_FAMILIA="suse" ;;
     *) OS_FAMILIA="otro" ;;
   esac
 }
@@ -386,6 +397,49 @@ buscar_bundle() {
   return 1
 }
 
+# Instala los paquetes del profesor según la familia de Linux
+instalar_paquetes_offline() {
+  local b dir
+  b=$(buscar_bundle) || return 1
+  dir="$b/paquetes"
+  case "$OS_FAMILIA" in
+    debian)
+      ls "$dir"/*.deb >/dev/null 2>&1 || return 1
+      instalar_deb_offline
+      ;;
+    fedora)
+      ls "$dir"/*.rpm >/dev/null 2>&1 || return 1
+      info "Instalando los RPM del paquete del profesor…"
+      pedir_sudo || return 1
+      SUDO rpm -Uvh --replacepkgs --nosignature "$dir"/*.rpm >"$HOME/.tuiawssim-pkg.log" 2>&1
+      if dpkg_rpm_ok; then ok "Paquetes instalados desde el paquete offline"; return 0; fi
+      fallo "No pude instalarlos. Mira $HOME/.tuiawssim-pkg.log"
+      return 1
+      ;;
+    arch)
+      ls "$dir"/*.pkg.tar.* >/dev/null 2>&1 || return 1
+      info "Instalando los paquetes de Arch del profesor…"
+      pedir_sudo || return 1
+      SUDO pacman -U --noconfirm "$dir"/*.pkg.tar.* >"$HOME/.tuiawssim-pkg.log" 2>&1
+      if hay_comando docker || hay_comando psql; then ok "Paquetes instalados desde el paquete offline"; return 0; fi
+      fallo "No pude instalarlos. Mira $HOME/.tuiawssim-pkg.log"
+      return 1
+      ;;
+    suse)
+      ls "$dir"/*.rpm >/dev/null 2>&1 || return 1
+      info "Instalando los RPM del paquete del profesor…"
+      pedir_sudo || return 1
+      SUDO zypper --no-refresh -y install "$dir"/*.rpm >"$HOME/.tuiawssim-pkg.log" 2>&1
+      if hay_comando docker || hay_comando psql; then ok "Paquetes instalados desde el paquete offline"; return 0; fi
+      fallo "No pude instalarlos. Mira $HOME/.tuiawssim-pkg.log"
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+dpkg_rpm_ok() { rpm -q docker-ce docker docker-engine containerd 2>/dev/null | grep -qv "not installed"; return $?; }
+
 instalar_deb_offline() {
   local b debs
   b=$(buscar_bundle) || return 1
@@ -455,7 +509,7 @@ instalar_docker() {
     fi
   else
     # 1) SIEMPRE primero el paquete del profesor, aunque haya internet
-    if [ "$OS_FAMILIA" = "debian" ] && instalar_deb_offline; then
+    if instalar_paquetes_offline; then
       SUDO systemctl start docker 2>/dev/null || true
       sleep 3
       detectar_docker_cmd || { fallo "Docker se instaló pero el demonio no responde"; return 1; }
@@ -469,6 +523,21 @@ instalar_docker() {
       return 1
     fi
     case "$OS_FAMILIA" in
+      fedora)
+        pedir_sudo || return 1
+        ejecutar "Docker instalado" SUDO dnf install -y docker || return 1
+        SUDO systemctl enable --now docker 2>/dev/null || true
+        ;;
+      arch)
+        pedir_sudo || return 1
+        ejecutar "Docker instalado" SUDO pacman -S --noconfirm docker || return 1
+        SUDO systemctl enable --now docker 2>/dev/null || true
+        ;;
+      suse)
+        pedir_sudo || return 1
+        ejecutar "Docker instalado" SUDO zypper --no-refresh -y install docker || return 1
+        SUDO systemctl enable --now docker 2>/dev/null || true
+        ;;
       macos)
         instalar_docker_macos || return 1
         ;;
@@ -509,7 +578,7 @@ instalar_aws_cli() {
     return 0
   fi
   # 1) primero el paquete del profesor
-  if [ "$OS_FAMILIA" = "debian" ] && instalar_awscli_offline; then
+  if [ "$OS_FAMILIA" != "macos" ] && instalar_awscli_offline; then
     ok "AWS CLI instalada desde el paquete del profesor: $(aws --version 2>&1 | head -1)"
     return 0
   fi
@@ -552,7 +621,7 @@ instalar_psql() {
     return 0
   fi
   # 1) primero el paquete del profesor
-  if [ "$OS_FAMILIA" = "debian" ] && instalar_deb_offline && psql_ok; then
+  if instalar_paquetes_offline && psql_ok; then
     ok "psql instalado desde el paquete del profesor: $(psql --version)"
     return 0
   fi
@@ -571,6 +640,18 @@ instalar_psql() {
     debian)
       pedir_sudo || return 1
       ejecutar "psql instalado" SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-client || return 1
+      ;;
+    fedora)
+      pedir_sudo || return 1
+      ejecutar "psql instalado" SUDO dnf install -y postgresql || return 1
+      ;;
+    arch)
+      pedir_sudo || return 1
+      ejecutar "psql instalado" SUDO pacman -S --noconfirm postgresql || return 1
+      ;;
+    suse)
+      pedir_sudo || return 1
+      ejecutar "psql instalado" SUDO zypper --no-refresh -y install postgresql || return 1
       ;;
     *) fallo "Instala el cliente de PostgreSQL a mano"; return 1 ;;
   esac
@@ -2240,7 +2321,9 @@ menu_principal() {
     info "O el diagnóstico:        ./floci-tui.sh --comprobar"
     return 1
   fi
-  if [ -n "${ROL_FORZADO:-}" ]; then
+  if [ "${PREGUNTAR_ROL:-0}" = 1 ]; then
+    elegir_rol || return 0
+  elif [ -n "${ROL_FORZADO:-}" ]; then
     # Solo para esta ejecución: no tocamos ~/.tuiawssim-rol
     ROL="$ROL_FORZADO"
   else
@@ -2319,6 +2402,7 @@ main() {
       --alumno)       ROL_FORZADO=alumno ;;
       --profesor)     ROL_FORZADO=profesor ;;
       --preparar-clase) PREPARAR_CLASE=1 ;;
+      --preguntar-rol)  PREGUNTAR_ROL=1 ;;
       --autoevaluar)  SOLO_AUTOEVALUAR=1 ;;
       --entregar)     SOLO_ENTREGAR=1 ;;
       --limpiar)  LIMPIAR=1 ;;

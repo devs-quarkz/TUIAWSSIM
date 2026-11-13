@@ -27,11 +27,14 @@ esac
 
 # Nombre .local (mDNS): NO cambia aunque el DHCP cambie la IP del equipo
 NOMBRE_LOCAL="$(hostname -s 2>/dev/null || hostname).local"
-if command -v systemctl >/dev/null 2>&1 && systemctl is-active avahi-daemon >/dev/null 2>&1; then
-  HAY_MDNS=1
-else
-  HAY_MDNS=0
-fi
+case "$(uname -s)" in
+  Darwin) HAY_MDNS=1 ;;   # macOS anuncia .local por Bonjour
+  *) if command -v systemctl >/dev/null 2>&1 && systemctl is-active avahi-daemon >/dev/null 2>&1; then
+       HAY_MDNS=1
+     else
+       HAY_MDNS=0
+     fi ;;
+esac
 
 command -v python3 >/dev/null 2>&1 || {
   printf '\033[1;31m  Necesito python3 para servir los ficheros.\033[0m\n'
@@ -142,7 +145,7 @@ fi
   echo "TUIAWSSIM — lo que sirve este equipo"
   echo "Fecha: $(date '+%Y-%m-%d %H:%M')"
   echo "URL fija: http://$(hostname -s 2>/dev/null || hostname).local:$PUERTO"
-  echo "URL IP:   http://$(hostname -I 2>/dev/null | awk '{print $1}'):$PUERTO"
+  echo "URL IP:   http://$IP:$PUERTO"
   echo
   for f in TUIAWSSIM.tar.gz herramientas.tar.gz imagenes-floci.tar.gz offline.tar.gz; do
     [ -f "$DIR/$f" ] && printf '%-24s %s\n' "$f" "$(du -h "$DIR/$f" 2>/dev/null | cut -f1)"
